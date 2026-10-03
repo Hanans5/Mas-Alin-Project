@@ -1,0 +1,8 @@
+# Never commit: live database, passwords, backups, the PocketBase binary.
+pb_data/
+backups/
+ACCOUNTS.md
+kasir/pocketbase
+*.db
+*.db-*
+.env*

@@ -1,0 +1,234 @@
+<title>Alur Sistem Nelin Batik</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: one reading column; each flow is a numbered step in the shop's day, diagram first, short notes after. */
+:root{
+  --bg:#f7f4ef; --surface:#fffdf9; --ink:#22201c; --muted:#6f675d; --line:#e4ddd2;
+  --sogan:#7a4a22;      /* batik sogan brown — accent */
+  --indigo:#2f4a6b;     /* batik indigo — second accent */
+  --ok:#2f7a4b; --warn:#9a6200; --bad:#b03a2e;
+  --display:"Fraunces",Georgia,serif;
+  --body:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#17140f; --surface:#211d17; --ink:#efe8dd; --muted:#a89e90; --line:#3a332a;
+  --sogan:#d9a46b; --indigo:#8fb0d8; --ok:#6cc08d; --warn:#e2b25a; --bad:#ec8277; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#17140f; --surface:#211d17; --ink:#efe8dd; --muted:#a89e90; --line:#3a332a;
+  --sogan:#d9a46b; --indigo:#8fb0d8; --ok:#6cc08d; --warn:#e2b25a; --bad:#ec8277; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:16px/1.6 var(--body);padding-inline:16px;padding-block:32px 64px}
+.wrap{max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:40px}
+header{display:flex;flex-direction:column;gap:10px;border-bottom:2px solid var(--sogan);padding-bottom:22px}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--sogan)}
+h1{font:700 clamp(30px,6vw,46px)/1.1 var(--display);margin:0;text-wrap:balance}
+.lead{color:var(--muted);max-width:62ch;margin:0}
+.meta{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:500 12px/1 var(--mono);border:1px solid var(--line);border-radius:99px;padding:6px 10px;color:var(--muted);background:var(--surface)}
+nav.toc{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
+nav.toc a{display:flex;gap:10px;align-items:baseline;text-decoration:none;color:var(--ink);padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+nav.toc a:hover,nav.toc a:focus-visible{border-color:var(--sogan);outline:none}
+nav.toc b{font:600 12px var(--mono);color:var(--sogan)}
+section{display:flex;flex-direction:column;gap:14px;scroll-margin-top:16px}
+.sh{display:flex;gap:14px;align-items:baseline}
+.sh .n{font:600 13px var(--mono);color:var(--sogan);min-width:2.2em}
+h2{font:600 clamp(22px,4vw,28px)/1.2 var(--display);margin:0;text-wrap:balance}
+p{margin:0;max-width:65ch}
+.diagram{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;overflow-x:auto}
+.diagram pre.mermaid{margin:0;background:none;display:flex;justify-content:center;min-width:min-content}
+ul.notes{margin:0;padding-left:1.2em;display:flex;flex-direction:column;gap:6px;max-width:68ch}
+ul.notes li::marker{color:var(--sogan)}
+code,.mono{font:500 .88em var(--mono);background:color-mix(in srgb,var(--sogan) 10%,transparent);padding:1px 5px;border-radius:5px}
+.tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:620px}
+th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:center}
+th:first-child,td:first-child{text-align:left}
+th{font:600 12px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);background:var(--bg)}
+tr:last-child td{border-bottom:0}
+.y{color:var(--ok);font-weight:700}.n{color:var(--muted)}.p{color:var(--warn);font-weight:600}
+footer{color:var(--muted);font-size:14px;border-top:1px solid var(--line);padding-top:18px}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Nelin Batik · Pekalongan</div>
+  <h1>Alur Sistem Kasir &amp; Keuangan</h1>
+  <p class="lead">Bagaimana data bergerak dari kasir sampai laporan: siapa boleh melakukan apa, apa yang terjadi saat transaksi, stok, piutang dan pembatalan, dan dari mana angka Buku Kas dan Laba Rugi berasal.</p>
+  <div class="meta"><span class="chip">PocketBase 0.40</span><span class="chip">nelin.necutbarber.shop (dev)</span><span class="chip">Waktu: WIB (UTC+7)</span><span class="chip">Okt 2026</span></div>
+</header>
+
+<nav class="toc" aria-label="Daftar isi">
+  <a href="#arsitektur"><b>1</b>Arsitektur server</a>
+  <a href="#peran"><b>2</b>Peran &amp; hak akses</a>
+  <a href="#penjualan"><b>3</b>Transaksi kasir</a>
+  <a href="#stok"><b>4</b>Pergerakan stok</a>
+  <a href="#piutang"><b>5</b>Piutang</a>
+  <a href="#batal"><b>6</b>Pembatalan transaksi</a>
+  <a href="#keuangan"><b>7</b>Buku Kas &amp; Laba Rugi</a>
+  <a href="#poin"><b>8</b>Poin member &amp; voucher</a>
+</nav>
+
+<section id="arsitektur">
+  <div class="sh"><span class="n">01</span><h2>Arsitektur server</h2></div>
+  <p>Semua berjalan di satu PC Debian. Pengunjung tidak pernah terhubung langsung ke PC; Cloudflare menerima permintaan lalu meneruskannya lewat tunnel, jadi IP rumah tetap tersembunyi dan tidak perlu buka port di router.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart LR
+  U["HP / laptop kasir,<br/>owner, pelanggan"] -->|HTTPS| CF["Cloudflare<br/>DNS + SSL"]
+  CF -->|tunnel home-server| NG["nginx :80<br/>pilih situs per domain"]
+  NG --> PB["PocketBase :8090<br/>API + halaman aplikasi"]
+  PB --> DB[("SQLite<br/>pb_data/data.db")]
+  PB --> HK["pb_hooks<br/>checkout, stok, piutang,<br/>laporan"]
+  SU["Mas Alin<br/>superuser"] -.->|/_/ panel admin| PB
+  </pre></div>
+  <ul class="notes">
+    <li>Layanan systemd <code>nelin-batik</code> (PocketBase) dan <code>home-tunnel</code> (Cloudflare) jalan otomatis setelah PC menyala.</li>
+    <li>Aplikasi kasir adalah satu file <code>pb_public/index.html</code> yang disajikan oleh PocketBase sendiri.</li>
+  </ul>
+</section>
+
+<section id="peran">
+  <div class="sh"><span class="n">02</span><h2>Peran &amp; hak akses</h2></div>
+  <p>Setiap orang login dengan username dan password. Batasan dicek di server, bukan hanya disembunyikan di layar, jadi kasir tidak bisa membuka Laba Rugi walau mengetik alamatnya sendiri.</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Fitur</th><th>Superuser</th><th>Owner</th><th>Admin</th><th>Kasir</th><th>Pelanggan</th></tr></thead>
+    <tbody>
+      <tr><td>Panel database <code>/_/</code></td><td class="y">✓</td><td class="n">—</td><td class="n">—</td><td class="n">—</td><td class="n">—</td></tr>
+      <tr><td>Kasir / POS</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="n">—</td></tr>
+      <tr><td>Diskon manual</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="n">—</td><td class="n">—</td></tr>
+      <tr><td>Lihat transaksi</td><td class="y">✓</td><td class="y">semua</td><td class="y">semua</td><td class="p">milik sendiri, hari ini</td><td class="p">milik sendiri</td></tr>
+      <tr><td>Batalkan transaksi</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="n">—</td><td class="n">—</td></tr>
+      <tr><td>Produk, kategori, stok</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="p">lihat saja</td><td class="n">—</td></tr>
+      <tr><td>Pengeluaran, piutang, laporan penjualan</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="n">—</td><td class="p">piutang sendiri</td></tr>
+      <tr><td>Laba Rugi, Buku Kas</td><td class="y">✓</td><td class="y">✓</td><td class="n">—</td><td class="n">—</td><td class="n">—</td></tr>
+      <tr><td>Kelola pengguna &amp; reset password</td><td class="y">✓</td><td class="y">✓</td><td class="p">daftar pelanggan</td><td class="p">daftar pelanggan</td><td class="n">—</td></tr>
+      <tr><td>Pengaturan toko, metode bayar, poin</td><td class="y">✓</td><td class="y">✓</td><td class="n">—</td><td class="n">—</td><td class="n">—</td></tr>
+      <tr><td>Voucher</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="p">pakai kode</td><td class="p">voucher pribadi</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="penjualan">
+  <div class="sh"><span class="n">03</span><h2>Transaksi kasir</h2></div>
+  <p>Layar kasir hanya mengirim produk dan jumlah. Harga, diskon, stok dan poin dihitung ulang oleh server, dan semua langkah tersimpan sekaligus: kalau satu gagal, tidak ada yang tersimpan.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart TD
+  A["Kasir pilih / scan produk"] --> B["Pilih member (opsional)<br/>atau daftar member baru"]
+  B --> C["Voucher · poin · diskon manual"]
+  C --> D{{"Server: hitung pratinjau<br/>/api/pos/preview"}}
+  D -->|kode salah, poin kurang,<br/>stok kurang| E["Pesan error,<br/>tombol Bayar terkunci"]
+  E --> C
+  D -->|ok| F["Bayar: pilih metode,<br/>uang diterima"]
+  F --> G{"Uang ≥ total?"}
+  G -->|ya| H["Lunas + kembalian"]
+  G -->|tidak| I{"Member &amp; centang<br/>'sisanya piutang'?"}
+  I -->|tidak| F
+  I -->|ya| J["Status piutang"]
+  H --> K
+  J --> K[["Server /api/pos/checkout — satu transaksi database"]]
+  K --> K1["Simpan penjualan<br/>TRX-YYMMDD-0001"]
+  K --> K2["Kurangi stok<br/>+ catat di riwayat stok"]
+  K --> K3["Tambah / pakai poin member"]
+  K --> K4["Voucher terpakai +1"]
+  K --> K5["Buat piutang<br/>(jika ada sisa)"]
+  K1 --> L["Struk: cetak 58mm<br/>atau kirim WhatsApp"]
+  </pre></div>
+</section>
+
+<section id="stok">
+  <div class="sh"><span class="n">04</span><h2>Pergerakan stok</h2></div>
+  <p>Angka stok tidak bisa diketik langsung. Setiap perubahan lewat salah satu dari lima pintu dan meninggalkan satu baris di riwayat stok, lengkap dengan siapa, kapan dan alasannya.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart LR
+  M["Masuk<br/>kiriman supplier"] -->|+qty| S[("Stok produk")]
+  K["Keluar<br/>rusak, hilang, retur"] -->|−qty| S
+  O["Opname<br/>hitung fisik"] -->|selisih| S
+  P["Penjualan"] -->|−qty| S
+  B["Batal jual"] -->|+qty| S
+  S --> R["Riwayat stok<br/>jenis · perubahan · stok jadi · oleh"]
+  S --> W{"stok ≤ batas<br/>peringatan?"}
+  W -->|ya| D["Muncul di Dasbor<br/>'Stok menipis'"]
+  </pre></div>
+  <ul class="notes">
+    <li>Masuk, Keluar dan Opname hanya untuk owner dan admin. Stok tidak pernah boleh minus.</li>
+    <li>Opname: masukkan jumlah hasil hitung, sistem mencatat selisihnya sendiri.</li>
+  </ul>
+</section>
+
+<section id="piutang">
+  <div class="sh"><span class="n">05</span><h2>Piutang</h2></div>
+  <p>Hanya member yang boleh berutang, supaya selalu jelas atas nama siapa. Pembayaran bisa dicicil.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart TD
+  A["Transaksi dengan sisa bayar"] --> B["Piutang: belum lunas<br/>+ jatuh tempo (opsional)"]
+  B --> C["Keuangan → Piutang<br/>tombol Ingatkan (WhatsApp)"]
+  B --> D["Bayar (owner/admin)<br/>/api/receivables/pay"]
+  D --> E{"Sisa = 0?"}
+  E -->|tidak| B
+  E -->|ya| F["Piutang lunas<br/>transaksi jadi lunas"]
+  D --> G["Member dapat poin<br/>dari jumlah yang dibayar"]
+  D --> H["Masuk Buku Kas<br/>sebagai 'Bayar piutang'"]
+  </pre></div>
+</section>
+
+<section id="batal">
+  <div class="sh"><span class="n">06</span><h2>Pembatalan transaksi</h2></div>
+  <p>Transaksi tidak pernah dihapus. Pembatalan membalik semua efeknya dan tetap tercatat dengan alasan.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart TD
+  A["Owner/admin buka transaksi"] --> B["Batalkan + isi alasan"]
+  B --> C[["/api/pos/void — satu transaksi database"]]
+  C --> D["Stok kembali<br/>(riwayat: Batal jual)"]
+  C --> E["Poin yang didapat ditarik,<br/>poin yang dipakai dikembalikan"]
+  C --> F["Kuota voucher dikembalikan"]
+  C --> G["Piutang ditutup: batal"]
+  C --> H["Status transaksi: batal<br/>tidak dihitung di laporan"]
+  </pre></div>
+</section>
+
+<section id="keuangan">
+  <div class="sh"><span class="n">07</span><h2>Buku Kas &amp; Laba Rugi</h2></div>
+  <p>Buku Kas tidak disimpan terpisah; ia dihitung setiap kali dibuka dari data aslinya. Kalau sebuah pengeluaran diubah, Buku Kas otomatis ikut benar.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart LR
+  subgraph Sumber
+    S1["Penjualan<br/>(uang diterima di kasir)"]
+    S2["Pembayaran piutang"]
+    S3["Pengeluaran"]
+    S4["Catat kas manual<br/>modal awal, setor bank"]
+    S5["Barang terjual<br/>harga &amp; HPP saat itu"]
+  end
+  S1 -->|masuk| BK["Buku Kas<br/>saldo awal → masuk/keluar → saldo akhir"]
+  S2 -->|masuk| BK
+  S3 -->|keluar| BK
+  S4 -->|masuk/keluar| BK
+  S5 --> LR["Laba Rugi"]
+  S3 --> LR
+  LR --> L1["Penjualan kotor − diskon<br/>= pendapatan bersih"]
+  L1 --> L2["− HPP = laba kotor"]
+  L2 --> L3["− pengeluaran = laba bersih"]
+  </pre></div>
+  <ul class="notes">
+    <li>Transaksi yang dibatalkan, dan pembayaran piutangnya, tidak dihitung di mana pun.</li>
+    <li>HPP diambil dari saat barang terjual, jadi mengubah harga modal sekarang tidak mengubah laporan bulan lalu.</li>
+    <li>Laporan bisa diekspor ke Excel (CSV) atau dicetak / disimpan sebagai PDF.</li>
+  </ul>
+</section>
+
+<section id="poin">
+  <div class="sh"><span class="n">08</span><h2>Poin member &amp; voucher</h2></div>
+  <div class="diagram"><pre class="mermaid">
+flowchart TD
+  A["Belanja member"] --> B["Dapat 1 poin per Rp 10.000 dibayar<br/>(atur di Pengaturan → Poin Member)"]
+  B --> C["Poin tampil di Akun Saya"]
+  C --> D["Tukar poin di kasir<br/>1 poin = Rp 100"]
+  V["Voucher: persen atau nominal,<br/>min. belanja, kuota, tanggal, khusus member"] --> E{"Server cek<br/>semua syarat"}
+  E -->|ok| F["Potongan masuk ke total"]
+  E -->|gagal| G["Kasir lihat alasannya"]
+  </pre></div>
+</section>
+
+<footer>Dokumen ini menggambarkan sistem per Oktober 2026 (versi pengembangan di nelin.necutbarber.shop). Kode sumber dan diagram ini ada di folder <code>~/nelin-batik</code>.</footer>
+</div>

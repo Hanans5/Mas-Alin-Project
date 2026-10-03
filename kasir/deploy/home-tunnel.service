@@ -1,0 +1,17 @@
+# /etc/systemd/system/home-tunnel.service — cloudflared tunnel "home-server"
+# for every site on this PC except NeCut (which keeps necut-tunnel).
+[Unit]
+Description=cloudflared tunnel home-server (all sites via nginx)
+After=network-online.target nginx.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=hanan
+ExecStart=/usr/local/bin/cloudflared --no-autoupdate --config /home/hanan/.cloudflared/home-server.yml tunnel run home-server
+Restart=always
+RestartSec=5
+SyslogIdentifier=home-tunnel
+
+[Install]
+WantedBy=multi-user.target

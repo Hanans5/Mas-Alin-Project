@@ -1,0 +1,158 @@
+/// <reference path="../pb_data/types.d.ts" />
+// Reports. Every date range is in WIB calendar days (?from=YYYY-MM-DD&to=…).
+// Cancelled sales (status batal) and payments on their debts count nowhere.
+// expenses.date and cash_entries.date hold a WIB calendar day at 00:00Z, so
+// they compare on their first 10 characters, not as instants.
+
+// GET /api/reports/dashboard — today at a glance. Profit only for the owner.
+routerAdd("GET", "/api/reports/dashboard", (e) => {
+  const L = require(`${__hooks}/lib.js`);
+  L.requireRole(e, ["owner", "admin", "kasir"]);
+  const day = L.wibDate();
+  const r = L.wibRange(day, day);
+  const isKasir = L.role(e) === "kasir";
+  // A kasir sees only their own till.
+  const mine = isKasir ? " AND s.cashier = {:me}" : "";
+  const p = { from: r.from, to: r.to, me: e.auth.id };
+
+  const today = L.query(e.app,
+    `SELECT COUNT(*) AS count, COALESCE(SUM(s.total),0) AS omzet, COALESCE(SUM(s.paid),0) AS paid
+       FROM sales s WHERE s.status != 'batal' AND s.created >= {:from} AND s.created < {:to}${mine}`,
+    p, { count: 0, omzet: 0, paid: 0 })[0];
+
+  const top = L.query(e.app,
+    `SELECT i.name AS name, SUM(i.qty) AS qty, SUM(i.subtotal) AS amount
+       FROM sale_items i JOIN sales s ON s.id = i.sale
+      WHERE s.status != 'batal' AND s.created >= {:from} AND s.created < {:to}${mine}
+      GROUP BY i.product ORDER BY qty DESC LIMIT 5`,
+    p, { name: "", qty: 0, amount: 0 });
+
+  const lowStock = L.query(e.app,
+    `SELECT id, name, sku, stock, min_stock FROM products
+      WHERE active = 1 AND min_stock > 0 AND stock <= min_stock ORDER BY stock ASC LIMIT 20`,
+    {}, { id: "", name: "", sku: "", stock: 0, min_stock: 0 });
+
+  const out = { date: day, today, top, lowStock };
+  if (!isKasir) {
+    out.receivables = L.query(e.app,
+      `SELECT COUNT(*) AS count, COALESCE(SUM(amount - paid),0) AS amount FROM receivables WHERE status = 'belum'`,
+      {}, { count: 0, amount: 0 })[0];
+  }
+  if (L.role(e) === "owner") {
+    out.today.gross_profit = L.query(e.app,
+      `SELECT COALESCE(SUM(i.subtotal - i.hpp * i.qty),0) - COALESCE((SELECT SUM(discount) FROM sales
+              WHERE status != 'batal' AND created >= {:from} AND created < {:to}),0) AS v
+         FROM sale_items i JOIN sales s ON s.id = i.sale
+        WHERE s.status != 'batal' AND s.created >= {:from} AND s.created < {:to}`,
+      p, { v: 0 })[0].v;
+  }
+  return e.json(200, out);
+}, $apis.requireAuth("users"));
+
+// GET /api/reports/sales?from&to — owner/admin.
+routerAdd("GET", "/api/reports/sales", (e) => {
+  const L = require(`${__hooks}/lib.js`);
+  L.requireRole(e, ["owner", "admin"]);
+  const q = e.requestInfo().query;
+  const r = L.wibRange(q.from, q.to);
+  const live = "s.status != 'batal' AND s.created >= {:from} AND s.created < {:to}";
+
+  const perDay = L.query(e.app,
+    `SELECT date(datetime(s.created, '+7 hours')) AS day, COUNT(*) AS count,
+            SUM(s.subtotal) AS subtotal, SUM(s.discount) AS discount, SUM(s.total) AS total
+       FROM sales s WHERE ${live} GROUP BY day ORDER BY day`,
+    r, { day: "", count: 0, subtotal: 0, discount: 0, total: 0 });
+  const perProduct = L.query(e.app,
+    `SELECT i.name AS name, p.sku AS sku, SUM(i.qty) AS qty, SUM(i.subtotal) AS amount
+       FROM sale_items i JOIN sales s ON s.id = i.sale LEFT JOIN products p ON p.id = i.product
+      WHERE ${live} GROUP BY i.product ORDER BY qty DESC`,
+    r, { name: "", sku: "", qty: 0, amount: 0 });
+  const perMethod = L.query(e.app,
+    `SELECT COALESCE(m.name,'-') AS method, COUNT(*) AS count, SUM(s.paid) AS paid
+       FROM sales s LEFT JOIN payment_methods m ON m.id = s.payment_method
+      WHERE ${live} GROUP BY s.payment_method ORDER BY paid DESC`,
+    r, { method: "", count: 0, paid: 0 });
+  const perCashier = L.query(e.app,
+    `SELECT COALESCE(NULLIF(u.name,''), u.username) AS cashier, COUNT(*) AS count, SUM(s.total) AS total
+       FROM sales s LEFT JOIN users u ON u.id = s.cashier
+      WHERE ${live} GROUP BY s.cashier ORDER BY total DESC`,
+    r, { cashier: "", count: 0, total: 0 });
+  return e.json(200, { from: q.from, to: q.to, perDay, perProduct, perMethod, perCashier });
+}, $apis.requireAuth("users"));
+
+// GET /api/reports/profit-loss?from&to — owner only.
+routerAdd("GET", "/api/reports/profit-loss", (e) => {
+  const L = require(`${__hooks}/lib.js`);
+  L.requireRole(e, ["owner"]);
+  const q = e.requestInfo().query;
+  const r = L.wibRange(q.from, q.to);
+  const p = { from: r.from, to: r.to, d1: q.from, d2: q.to };
+
+  const s = L.query(e.app,
+    `SELECT COALESCE(SUM(subtotal),0) AS gross, COALESCE(SUM(discount),0) AS discount
+       FROM sales WHERE status != 'batal' AND created >= {:from} AND created < {:to}`,
+    p, { gross: 0, discount: 0 })[0];
+  const hpp = L.query(e.app,
+    `SELECT COALESCE(SUM(i.hpp * i.qty),0) AS v FROM sale_items i JOIN sales s ON s.id = i.sale
+      WHERE s.status != 'batal' AND s.created >= {:from} AND s.created < {:to}`,
+    p, { v: 0 })[0].v;
+  const expenses = L.query(e.app,
+    `SELECT category, SUM(amount) AS amount FROM expenses
+      WHERE substr(date,1,10) BETWEEN {:d1} AND {:d2} GROUP BY category ORDER BY amount DESC`,
+    p, { category: "", amount: 0 });
+
+  const revenue = s.gross - s.discount;
+  const grossProfit = revenue - hpp;
+  const totalExpenses = expenses.reduce((a, x) => a + x.amount, 0);
+  return e.json(200, {
+    from: q.from, to: q.to,
+    gross_sales: s.gross, discount: s.discount, revenue, hpp,
+    gross_profit: grossProfit, expenses, total_expenses: totalExpenses,
+    net_profit: grossProfit - totalExpenses,
+  });
+}, $apis.requireAuth("users"));
+
+// GET /api/reports/cashbook?from&to — owner only. Money in and out, built at
+// read time from sales, debt payments, expenses and manual cash entries.
+routerAdd("GET", "/api/reports/cashbook", (e) => {
+  const L = require(`${__hooks}/lib.js`);
+  L.requireRole(e, ["owner"]);
+  const q = e.requestInfo().query;
+  const r = L.wibRange(q.from, q.to);
+
+  // One UNION of every money movement, each tagged with its WIB day.
+  const all = `
+    SELECT date(datetime(s.created,'+7 hours')) AS day, s.created AS at, 'masuk' AS type, s.paid AS amount,
+           'Penjualan' AS source, s.number AS ref, COALESCE(m.name,'') AS method, '' AS note
+      FROM sales s LEFT JOIN payment_methods m ON m.id = s.payment_method
+     WHERE s.status != 'batal' AND s.paid > 0
+    UNION ALL
+    SELECT date(datetime(rp.created,'+7 hours')), rp.created, 'masuk', rp.amount,
+           'Bayar piutang', s.number, COALESCE(m.name,''), rp.note
+      FROM receivable_payments rp JOIN receivables rc ON rc.id = rp.receivable
+      JOIN sales s ON s.id = rc.sale LEFT JOIN payment_methods m ON m.id = rp.payment_method
+     WHERE s.status != 'batal'
+    UNION ALL
+    SELECT substr(x.date,1,10), x.date, 'keluar', x.amount,
+           'Pengeluaran: ' || x.category, '', COALESCE(m.name,''), x.note
+      FROM expenses x LEFT JOIN payment_methods m ON m.id = x.payment_method
+    UNION ALL
+    SELECT substr(c.date,1,10), c.date, c.type, c.amount,
+           'Manual', '', COALESCE(m.name,''), c.note
+      FROM cash_entries c LEFT JOIN payment_methods m ON m.id = c.payment_method`;
+
+  const p = { d1: q.from, d2: q.to };
+  const opening = L.query(e.app,
+    `SELECT COALESCE(SUM(CASE type WHEN 'masuk' THEN amount ELSE -amount END),0) AS v FROM (${all}) WHERE day < {:d1}`,
+    p, { v: 0 })[0].v;
+  const lines = L.query(e.app,
+    `SELECT day, type, amount, source, ref, method, note FROM (${all}) WHERE day BETWEEN {:d1} AND {:d2} ORDER BY day, at`,
+    p, { day: "", type: "", amount: 0, source: "", ref: "", method: "", note: "" });
+
+  let balance = opening, totalIn = 0, totalOut = 0;
+  for (const l of lines) {
+    if (l.type === "masuk") { balance += l.amount; totalIn += l.amount; } else { balance -= l.amount; totalOut += l.amount; }
+    l.balance = balance;
+  }
+  return e.json(200, { from: q.from, to: q.to, opening, total_in: totalIn, total_out: totalOut, closing: balance, lines });
+}, $apis.requireAuth("users"));
