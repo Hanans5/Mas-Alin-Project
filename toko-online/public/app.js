@@ -226,8 +226,7 @@ function viewShelf() {
         </a>`).join('')}</div>
     </section>
 
-    <section class="ask">
-      <img src="${Motif.swatch('ask-megamendung', 700, 'megamendung')}" alt="" loading="lazy" width="700" height="700">
+    <section class="ask" style="background-image:url(${Motif.swatch('ask-megamendung', 300, 'megamendung')})">
       <div class="wrap">
         <p>Ragu soal ukuran, warna, atau bahan?</p>
         <h2>Tanya dulu lewat WhatsApp</h2>
