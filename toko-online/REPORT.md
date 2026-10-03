@@ -25,6 +25,7 @@ details and product photos are placeholders.
 | Store | https://toko-nelin.necutbarber.shop |
 | Kasir / admin app | https://nelin.necutbarber.shop |
 | PocketBase panel | https://nelin.necutbarber.shop/_/ (returns 404 on the store address on purpose) |
+| Source code | https://github.com/Hanans5/Mas-Alin-Project (private). `kasir/` and `toko-online/` are copies of `~/nelin-batik` and `~/nelin-store`, without the database, passwords or backups. After a change: `cd ~/mas-alin-project && ./sync.sh && git add -A && git commit -m "…" && git push` |
 | Flow charts | https://claude.ai/artifact/MKW4gWxktiNjCuKw5QH57F, source `~/nelin-batik/docs/alur-sistem.html` (not yet updated for the store) |
 
 To move to his own domain:
@@ -73,15 +74,16 @@ docs/design-research.md   reference sites + UX research behind the design
 **Pages:**
 - `#/`: the home page, top to bottom:
   1. **Header, modelled on bateeq.com:** a dark utility strip (location, opening hours, "Kirim ke seluruh Indonesia", Instagram and WhatsApp icons) that scrolls away. Below it, a sticky bar with the logo, a spaced-capitals menu (Beranda · Koleksi · Produk · Cerita · Kunjungi toko · Pesanan saya), and the search and cart icons. The menu jumps to sections of the home page and highlights the one in view. Below 1024px it collapses into a ☰ dropdown. Scroll restoration is manual (`history.scrollRestoration`), because the browser's own restoring fought the section jumps.
-  2. **Campaign hero:** a collection name set very large, next to a motif panel.
-  3. **Category shortcuts.**
+  2. **Campaign hero (bateeq):** full width, with a heavy indigo wash over the motif and the collection name very large in white, centred. The hang tag sits bottom-left. Set `CONTENT.campaign.photo` to a wide photo URL and it replaces the motif, with a lighter wash.
+  3. **"Pilih dari motifnya" band (bateeq "Latest collections"):** a night-indigo band of five edge-to-edge motif tiles, with the model count, name and note centred. They swipe on phones and filter the product grid.
   4. **"Paling laris" rail:** real best sellers from sales data.
-  5. **"Pilih dari motifnya":** five motif collections that filter the product grid.
-  6. **"Semua produk" grid:** category tabs, search, sort, live stock, real "terjual" counts, and a "Sisa N" flag when stock is low.
-  7. **"Cerita kami".**
-  8. **Instagram strip.**
-  9. **"Datang ke toko":** address, hours, a Google Maps link, WhatsApp, and payment and courier badges.
-  10. **Footer** with the consumer-complaints block.
+  5. **"Semua produk" grid:** category tabs, search, sort, live stock, real "terjual" counts, and a "Sisa N" flag when stock is low.
+  6. **"Cerita kami" (bateeq "Our story"):** an oversized headline on white, beside an image.
+  7. **Mosaic (bateeq gallery):** a big tile for the largest category, a wide one for the next, and small ones for "Datang ke toko" and Instagram.
+  8. **WhatsApp band** in the place of bateeq's newsletter band: a full-width motif with "Tanya dulu lewat WhatsApp".
+  9. **Instagram strip.**
+  10. **"Datang ke toko":** address, hours, open/closed now, a Google Maps link, WhatsApp, and payment and courier badges.
+  11. **Footer (bateeq):** night indigo, four columns (shop, contact, payment and shipping, consumer complaints), then a copyright strip.
 
   The structure was taken from bateeq.com, HIJUP and Zoya, which were studied top to bottom (see `docs/design-research.md`).
 - `#/p/{id}`: product page with quantity, add to cart / buy now, shipping estimate by province, and a buy bar pinned to the bottom on phones.
