@@ -1424,7 +1424,9 @@ function viewReports() {
 
 // ── pengguna ────────────────────────────────────────
 // Owner manages everyone. Admin sees pelanggan + kasir and registers pelanggan.
-const ROLE_LABEL = { owner: 'Owner', admin: 'Admin', kasir: 'Kasir', pelanggan: 'Pelanggan' };
+// Key order is the display order: list, filter and role picker all follow it.
+const ROLE_LABEL = { kasir: 'Kasir', admin: 'Admin', owner: 'Owner', pelanggan: 'Pelanggan' };
+const ROLE_RANK = Object.fromEntries(Object.keys(ROLE_LABEL).map((k, i) => [k, i]));
 const US = { role: '', q: '' };
 async function viewUsers() {
   const owner = role() === 'owner';
@@ -1450,7 +1452,11 @@ async function viewUsers() {
     $('#utbl').querySelectorAll('[data-u]').forEach(b => b.onclick = () => editUser(all.find(u => u.id === b.dataset.u)));
   };
   const load = async () => {
-    try { all = (await list('users', { sort: 'role,name' })).items; draw(); }
+    try {
+      all = (await list('users', { sort: 'name' })).items
+        .sort((x, y) => (ROLE_RANK[x.role] ?? 9) - (ROLE_RANK[y.role] ?? 9) || (x.name || x.username).localeCompare(y.name || y.username, 'id'));
+      draw();
+    }
     catch (e) { $('#utbl tbody').innerHTML = `<tr><td colspan="6"><div class="err">${esc(e.message)}</div></td></tr>`; }
   };
   const editUser = u => {
