@@ -171,6 +171,9 @@ h3.sec{margin:18px 0 8px;font-size:15px}
 .subtabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:14px;overflow-x:auto;scrollbar-width:none}
 .subtabs button{border:0;background:none;padding:10px 14px;font-weight:700;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;min-height:44px}
 .subtabs button.on{color:var(--accent);border-bottom-color:var(--accent)}
+.link{border:0;background:none;padding:0;color:var(--accent);font-weight:700;text-decoration:underline;text-underline-offset:3px;min-height:0}
+.subtabs .cnt{display:inline-block;min-width:22px;margin-left:6px;padding:1px 7px;border-radius:99px;background:var(--line);color:var(--muted);font-size:12px;font-weight:700;text-align:center}
+.subtabs button.on .cnt{background:var(--accent-soft);color:var(--accent)}
 .range{align-items:center}
 .range .chips{flex:1 1 100%}
 .range .input{flex:1 1 140px}
@@ -339,7 +342,7 @@ function renderLogin(err) {
 // ── app shell ───────────────────────────────────────
 const TABS = {
   owner:     [['dash', 'Dasbor'], ['pos', 'Kasir'], ['tx', 'Transaksi'], ['online', 'Pesanan Online'], ['prod', 'Produk'], ['stock', 'Stok'], ['fin', 'Keuangan'], ['rep', 'Laporan'], ['users', 'Pengguna'], ['set', 'Pengaturan']],
-  admin:     [['dash', 'Dasbor'], ['pos', 'Kasir'], ['tx', 'Transaksi'], ['online', 'Pesanan Online'], ['prod', 'Produk'], ['stock', 'Stok'], ['fin', 'Keuangan'], ['rep', 'Laporan'], ['users', 'Pelanggan'], ['set', 'Voucher']],
+  admin:     [['dash', 'Dasbor'], ['pos', 'Kasir'], ['tx', 'Transaksi'], ['online', 'Pesanan Online'], ['prod', 'Produk'], ['stock', 'Stok'], ['fin', 'Keuangan'], ['rep', 'Laporan'], ['users', 'Pengguna'], ['set', 'Voucher']],
   kasir:     [['pos', 'Kasir'], ['tx', 'Transaksi Hari Ini']],
   pelanggan: [['me', 'Akun Saya']],
 };
@@ -1117,6 +1120,9 @@ function rangePicker(el, state, onChange) {
 function subTabs(el, tabs, state, key, onChange) {
   el.innerHTML = `<div class="subtabs">${tabs.map(([k, l]) => `<button data-st="${k}" class="${state[key] === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   el.querySelectorAll('[data-st]').forEach(b => b.onclick = () => { state[key] = b.dataset.st; subTabs(el, tabs, state, key, onChange); onChange(); });
+  // on a phone the row scrolls sideways; keep the chosen tab in sight
+  const on = $('.on', el), row = on?.parentElement;
+  if (on && row.scrollWidth > row.clientWidth) row.scrollLeft = on.offsetLeft - (row.clientWidth - on.offsetWidth) / 2;
 }
 function downloadCSV(name, rows) {
   const cell = v => { const s = String(v ?? ''); return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
@@ -1424,44 +1430,52 @@ function viewReports() {
 
 // ── pengguna ────────────────────────────────────────
 // Owner manages everyone. Admin sees pelanggan + kasir and registers pelanggan.
-// Key order is the display order: list, filter and role picker all follow it.
+// Key order is the order of the role menu and the role picker.
 const ROLE_LABEL = { kasir: 'Kasir', admin: 'Admin', owner: 'Owner', pelanggan: 'Pelanggan' };
-const ROLE_RANK = Object.fromEntries(Object.keys(ROLE_LABEL).map((k, i) => [k, i]));
-const US = { role: '', q: '' };
+const US = { role: 'kasir', q: '' };
 async function viewUsers() {
   const owner = role() === 'owner';
+  // Pick a role first, then see that role's people (admin sees kasir + pelanggan only).
+  const roles = Object.keys(ROLE_LABEL).filter(k => owner || k === 'kasir' || k === 'pelanggan');
+  if (!roles.includes(US.role)) US.role = roles[0];
   $('#view').innerHTML = `
+    <div id="utabs"></div>
     <div class="toolbar">
       <input class="input" id="uq" placeholder="Cari nama / username / HP" value="${esc(US.q)}">
-      <select class="input" id="ur" style="flex:0 1 180px"><option value="">Semua peran</option>${Object.entries(ROLE_LABEL).filter(([k]) => owner || k === 'pelanggan' || k === 'kasir').map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
-      <button class="btn primary" id="unew">+ ${owner ? 'Pengguna' : 'Pelanggan'}</button>
+      <button class="btn primary" id="unew"></button>
     </div>
-    <div class="card"><table class="tbl" id="utbl"><thead><tr><th>Nama</th><th>Peran</th><th>No HP</th><th class="r">Poin</th><th>Status</th><th></th></tr></thead><tbody><tr><td colspan="6" class="empty">Memuat…</td></tr></tbody></table></div>`;
-  $('#ur').value = US.role;
+    <div id="uhint"></div>
+    <div class="card"><table class="tbl" id="utbl"><thead></thead><tbody><tr><td colspan="5" class="empty">Memuat…</td></tr></tbody></table></div>`;
   let all = [];
+  const match = (u, q) => !q || [u.name, u.username, u.phone].some(v => (v || '').toLowerCase().includes(q));
+  const tabs = () => subTabs($('#utabs'), roles.map(k => [k, `${ROLE_LABEL[k]} <span class="cnt">${all.filter(u => u.role === k).length}</span>`]), US, 'role', draw);
   const draw = () => {
-    const q = US.q.trim().toLowerCase();
-    const rows = all.filter(u => (!US.role || u.role === US.role) && (!q || [u.name, u.username, u.phone].some(v => (v || '').toLowerCase().includes(q))));
+    const q = US.q.trim().toLowerCase(), pel = US.role === 'pelanggan';
+    $('#unew').textContent = '+ ' + (owner ? ROLE_LABEL[US.role] : 'Pelanggan');
+    $('#utbl thead').innerHTML = `<tr><th>Nama</th><th>No HP</th>${pel ? '<th class="r">Poin</th>' : ''}<th>Status</th><th></th></tr>`;
+    // active people first, then by name
+    const rows = all.filter(u => u.role === US.role && match(u, q))
+      .sort((x, y) => (x.disabled ? 1 : 0) - (y.disabled ? 1 : 0) || (x.name || x.username).localeCompare(y.name || y.username, 'id'));
+    // A search that only hits other roles says where the hits are.
+    const elsewhere = q && !rows.length ? roles.filter(k => k !== US.role && all.some(u => u.role === k && match(u, q))) : [];
+    $('#uhint').innerHTML = elsewhere.length ? `<p class="muted" style="margin:0 0 10px">Ditemukan di ${elsewhere.map(k => `<button class="link" data-goto="${k}">${ROLE_LABEL[k]}</button>`).join(', ')}.</p>` : '';
+    $('#uhint').querySelectorAll('[data-goto]').forEach(b => b.onclick = () => { US.role = b.dataset.goto; tabs(); draw(); });
     $('#utbl tbody').innerHTML = rows.length ? rows.map(u => `<tr class="${u.disabled ? 'off' : ''}">
       <td data-l="Nama"><b>${esc(u.name || u.username)}</b><div class="muted sm">@${esc(u.username)}</div></td>
-      <td data-l="Peran"><span class="badge ${u.role === 'owner' ? '' : u.role === 'pelanggan' ? 'ok' : 'warn'}">${ROLE_LABEL[u.role] || u.role}</span></td>
       <td data-l="No HP">${esc(u.phone) || '<span class="muted">—</span>'}</td>
-      <td data-l="Poin" class="r num">${u.role === 'pelanggan' ? u.points : ''}</td>
+      ${pel ? `<td data-l="Poin" class="r num">${u.points}</td>` : ''}
       <td data-l="Status">${u.disabled ? '<span class="badge bad">nonaktif</span>' : '<span class="badge ok">aktif</span>'}</td>
-      <td class="r">${owner ? `<button class="btn sm" data-u="${u.id}">Ubah</button>` : ''}</td></tr>`).join('') : `<tr><td colspan="6" class="empty">Tidak ada pengguna.</td></tr>`;
+      <td class="r">${owner ? `<button class="btn sm" data-u="${u.id}">Ubah</button>` : ''}</td></tr>`).join('')
+      : `<tr><td colspan="5" class="empty">${q ? 'Tidak ada yang cocok.' : `Belum ada ${ROLE_LABEL[US.role].toLowerCase()}.`}</td></tr>`;
     $('#utbl').querySelectorAll('[data-u]').forEach(b => b.onclick = () => editUser(all.find(u => u.id === b.dataset.u)));
   };
   const load = async () => {
-    try {
-      all = (await list('users', { sort: 'name' })).items
-        .sort((x, y) => (ROLE_RANK[x.role] ?? 9) - (ROLE_RANK[y.role] ?? 9) || (x.name || x.username).localeCompare(y.name || y.username, 'id'));
-      draw();
-    }
-    catch (e) { $('#utbl tbody').innerHTML = `<tr><td colspan="6"><div class="err">${esc(e.message)}</div></td></tr>`; }
+    try { all = (await list('users', { sort: 'name' })).items; tabs(); draw(); }
+    catch (e) { $('#utbl tbody').innerHTML = `<tr><td colspan="5"><div class="err">${esc(e.message)}</div></td></tr>`; }
   };
   const editUser = u => {
     const isNew = !u;
-    u = u || { name: '', username: '', phone: '', address: '', role: owner ? 'kasir' : 'pelanggan', points: 0, disabled: false };
+    u = u || { name: '', username: '', phone: '', address: '', role: owner ? US.role : 'pelanggan', points: 0, disabled: false };
     const self = u.id === S.user.id;
     openModal(`<h2>${isNew ? 'Pengguna baru' : 'Ubah ' + esc(u.name || u.username)}</h2>
       <form id="gf">
@@ -1498,7 +1512,6 @@ async function viewUsers() {
     };
   };
   $('#uq').oninput = () => { US.q = $('#uq').value; draw(); };
-  $('#ur').onchange = () => { US.role = $('#ur').value; draw(); };
   $('#unew').onclick = () => owner ? editUser(null) : openNewCustomerStandalone(load);
   load();
 }
