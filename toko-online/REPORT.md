@@ -25,7 +25,7 @@ details and product photos are placeholders.
 | Store | https://toko-nelin.necutbarber.shop |
 | Kasir / admin app | https://nelin.necutbarber.shop |
 | PocketBase panel | https://nelin.necutbarber.shop/_/ (returns 404 on the store address on purpose) |
-| Source code | https://github.com/Hanans5/Mas-Alin-Project (private). `kasir/` and `toko-online/` are copies of `~/nelin-batik` and `~/nelin-store`, without the database, passwords or backups. After a change: `cd ~/mas-alin-project && ./sync.sh && git add -A && git commit -m "…" && git push` |
+| Source code | https://github.com/Hanans5/Mas-Alin-Project (public). `kasir/` and `toko-online/` are copies of `~/nelin-batik` and `~/nelin-store`, without the database, passwords or backups. After a change: `cd ~/mas-alin-project && ./sync.sh && git add -A && git commit -m "…" && git push` |
 | Flow charts | https://claude.ai/artifact/MKW4gWxktiNjCuKw5QH57F, source `~/nelin-batik/docs/alur-sistem.html` (not yet updated for the store) |
 
 To move to his own domain:
