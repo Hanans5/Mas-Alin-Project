@@ -10,7 +10,7 @@ for f in "$src"/*.js; do node --check "$f"; done
 rsync -a --delete "$src"/ "$dst"/
 for f in styles.css motifs.js app.js; do
   v=$(sha1sum "$dst/$f" | cut -c1-10)
-  sed -i "s#\"$f\"#\"$f?v=$v\"#" "$dst/index.html"
+  sed -i "s#\"/$f\"#\"/$f?v=$v\"#" "$dst/index.html"
 done
-grep -o '"[a-z]*\.\(css\|js\)?v=[0-9a-f]*"' "$dst/index.html" | tr '\n' ' '; echo
+grep -o '"/[a-z]*\.\(css\|js\)?v=[0-9a-f]*"' "$dst/index.html" | tr '\n' ' '; echo
 echo "published $(ls "$dst" | wc -l) files"

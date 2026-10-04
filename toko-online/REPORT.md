@@ -98,6 +98,16 @@ docs/design-research.md   reference sites + UX research behind the design
 4. **Fulfilment:** either `dikirim` with a tracking number, or `siap_diambil` for pickup. Then `selesai`.
 5. **Expiry and cancellation:** unpaid orders expire after 24 hours through a cron job every 5 minutes, and their stock comes back. A customer can cancel while unpaid. The admin can cancel before shipping, which returns the stock and voids the sale.
 
+**Order tracking (added 2026-10-04):**
+- Every web order has `track`, an 8-character code without look-alikes (no 0/O, 1/I/L), made with crypto randomness and unique. The buyer's link is `toko…/t/{code}`.
+- `/t/{code}` is a **tracker-only page**: status, a four-step bar with times, courier and resi (Salin, "Cek posisi paket" via cekresi.com), parcel contents and history. It hides the shop's menus and refreshes every minute. The public API `GET /api/store/track/{code}` returns only first name, city, items, courier, resi and history: no phone, street, prices, payment details or staff names.
+- The shop menu item "Lacak pesanan" (`#/pesanan`) has a box for a code or pasted link, then the orders made on this device. The order page shows the tracking link, and the buyer's WhatsApp to the shop carries the tracking link plus "Untuk admin: {pos_url}/#/o/{number}" instead of the secret order link.
+- Kasir app: the **Pengiriman** menu (owner and admin) has the groups Perlu dikirim, Dalam perjalanan, Ambil di toko and Selesai, with search. Type the resi and press Kirim, and a pop-up offers the WhatsApp to the buyer with the resi and tracking link. Each order also has "WhatsApp pembeli", "Salin link lacak", "Paket diterima" and Detail. A shipped order's resi can be corrected (action `resi`).
+- Links like `nelin…/#/o/WEB-…` open that order in the kasir app after login.
+- The two base addresses are in Pengaturan → Toko Online ("Alamat toko online", "Alamat aplikasi kasir"; settings `store_url`, `pos_url`). Change them there when moving to Mas Alin's domain.
+- Migration `1791070000_order_tracking.js`; the database backup from before it is `~/nelin-batik/backups/data-before-tracking-20261004-0713.db`.
+- The store's `index.html` loads `/styles.css`, `/motifs.js` and `/app.js` from the root (so `/t/…` works), and `publish.sh` stamps them with `?v=<hash>`.
+
 **Shipping:** couriers are J&T EZ, JNE REG and YES, Ninja Xpress, SiCepat and AnterAja, plus pickup at the shop. Costs are an **estimate** from a zone table in `~/nelin-batik/pb_hooks/store_lib.js`: six zones from Pekalongan, by province, per kg with a 0.3 kg tolerance, using each product's `weight` (default 250 g). The admin rechecks over WhatsApp. For live rates, replace `estimateShipping()` with a call to Biteship or RajaOngkir; both need a paid API key.
 
 **Store API** (in `~/nelin-batik/pb_hooks/store.pb.js`):

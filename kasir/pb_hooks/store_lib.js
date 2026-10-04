@@ -104,6 +104,39 @@ function addHistory(order, status, note, by) {
 }
 
 // What a customer may see about their own order.
+// Tracking code: 8 characters without look-alikes (no 0/O, 1/I/L), random from
+// crypto/rand, unique per order. Used in toko…/t/{code}.
+const TRACK_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+function newTrackCode(tx) {
+  for (let i = 0; i < 10; i++) {
+    const c = $security.randomStringWithAlphabet(8, TRACK_ALPHABET);
+    try { tx.findFirstRecordByFilter("web_orders", "track = {:c}", { c }); } catch (_) { return c; }
+  }
+  throw new Error("Gagal membuat kode lacak, coba lagi.");
+}
+// Links for messages: the customer's tracking page and the order in the kasir app.
+function orderLinks(app, o) {
+  const s = app.findFirstRecordByFilter("settings", "id != ''");
+  const store = (s.getString("store_url") || "https://toko-nelin.necutbarber.shop").replace(/\/+$/, "");
+  const pos = (s.getString("pos_url") || "https://nelin.necutbarber.shop").replace(/\/+$/, "");
+  return { track: o.getString("track") ? `${store}/t/${o.getString("track")}` : "", pos: `${pos}/#/o/${o.getString("number")}` };
+}
+// What the tracking page may show. Anyone holding the link sees this, so no
+// phone, street address, prices, payment details or staff names.
+function trackView(app, o) {
+  const s = app.findFirstRecordByFilter("settings", "id != ''");
+  const a = json(o, "address") || {};
+  return {
+    number: o.getString("number"), status: o.getString("status"), created: o.getString("created"),
+    name: o.getString("name").split(/\s+/)[0], city: a.city || "", province: a.province || "",
+    delivery: o.getString("delivery"), courier: o.getString("courier"), service: o.getString("service"), etd: o.getString("etd"),
+    resi: o.getString("resi"),
+    items: (json(o, "items") || []).map((i) => ({ name: i.name, qty: i.qty })),
+    history: (json(o, "history") || []).map((h) => ({ status: h.status, note: h.note, at: h.at })),
+    shop: { name: s.getString("store_name"), wa: s.getString("wa_number"), address: s.getString("address") },
+  };
+}
+
 function publicOrder(app, o) {
   const s = app.findFirstRecordByFilter("settings", "id != ''");
   const file = (rec, field) => rec.getString(field) ? `/api/files/${rec.collection().id}/${rec.id}/${rec.getString(field)}` : "";
@@ -116,6 +149,7 @@ function publicOrder(app, o) {
     subtotal: o.getInt("subtotal"), shipping: o.getInt("shipping"), shipping_adjusted: o.getBool("shipping_adjusted"),
     unique_code: o.getInt("unique_code"), total: o.getInt("total"), payment: o.getString("payment"),
     has_proof: !!o.getString("proof"), resi: o.getString("resi"), note: o.getString("note"),
+    track: o.getString("track"), track_url: orderLinks(app, o).track, pos_url: orderLinks(app, o).pos,
     history: json(o, "history"),
     pay: {
       qris: file(s, "qris"),
@@ -139,4 +173,4 @@ function sendMail(app, to, subject, html) {
   }
 }
 
-module.exports = { json, PROVINCES, estimateShipping, priceStoreCart, normPhone, nextOrderNumber, addHistory, publicOrder, sendMail, DEFAULT_WEIGHT };
+module.exports = { json, PROVINCES, estimateShipping, priceStoreCart, normPhone, nextOrderNumber, addHistory, publicOrder, trackView, orderLinks, newTrackCode, sendMail, DEFAULT_WEIGHT };

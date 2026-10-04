@@ -516,7 +516,6 @@ async function viewOrder(number, token) {
   try { o = await api(`/api/store/orders/${encodeURIComponent(number)}?t=${encodeURIComponent(token)}`); }
   catch (e) { $('#main').innerHTML = `<div class="wrap empty">${esc(e.message)}<br><a class="btn" href="#/pesanan" style="margin-top:14px">Pesanan saya</a></div>`; return; }
   document.title = `${o.number} — Nelin Batik`;
-  const url = location.href;
   const pickup = o.delivery === 'ambil';
   const steps = ['Dibuat', 'Dibayar', 'Dikemas', pickup ? 'Siap diambil' : 'Dikirim', 'Selesai'];
   const at = { menunggu_bayar: 0, menunggu_verifikasi: 1, diproses: 2, dikirim: 3, siap_diambil: 3, selesai: 4 }[o.status];
@@ -524,7 +523,7 @@ async function viewOrder(number, token) {
   // The last three digits are what tell this transfer apart from others.
   const amountHtml = (() => { const s = rp(o.total); return `${s.slice(0, -3)}<span class="uniq">${s.slice(-3)}</span>`; })();
   const demoPay = /contoh/i.test(o.pay.bank_holder + o.pay.bank_name);
-  const waText = `Halo ${o.shop.name}, saya ${o.name} sudah pesan ${o.number}.\nTotal ${rp(o.total)} via ${o.payment === 'qris' ? 'QRIS' : 'transfer'}${pickup ? ', ambil di toko' : `, kirim ${o.courier} ${o.service} ke ${o.address.city}`}.\nMohon dicek ya. ${url}`;
+  const waText = `Halo ${o.shop.name}, saya ${o.name} sudah pesan ${o.number}.\nTotal ${rp(o.total)} via ${o.payment === 'qris' ? 'QRIS' : 'transfer'}${pickup ? ', ambil di toko' : `, kirim ${o.courier} ${o.service} ke ${o.address.city}`}.\nMohon dicek ya.${o.track_url ? `\n\nLacak: ${o.track_url}` : ''}${o.pos_url ? `\nUntuk admin: ${o.pos_url}` : ''}`;
 
   let payPanel = '';
   if (o.status === 'menunggu_bayar') {
@@ -566,7 +565,7 @@ async function viewOrder(number, token) {
 
   $('#main').innerHTML = `
     <div class="wrap">
-      <nav class="crumbs"><a href="#/pesanan">Pesanan saya</a></nav>
+      <nav class="crumbs"><a href="#/pesanan">Lacak pesanan</a></nav>
       <div class="order">
         <div>
           <div class="muted" style="font-weight:700">${STATUS[o.status]}</div>
@@ -574,6 +573,11 @@ async function viewOrder(number, token) {
           ${dead ? '' : `<ol class="track" aria-label="Status pesanan">${steps.map((s, i) => `<li class="${i < at ? 'done' : i === at ? 'now' : ''}" ${i === at ? 'aria-current="step"' : ''}>${s}</li>`).join('')}</ol>`}
         </div>
         ${payPanel}
+        ${o.track_url && !dead ? `<section class="panel">
+          <h2>Link lacak pesanan</h2>
+          <p class="muted" style="margin:0 0 6px;font-size:14px">Buka dari HP mana saja tanpa login, atau bagikan ke keluarga. Link ini hanya menampilkan status dan resi.</p>
+          <div class="copyrow"><div><span>Kode ${esc(o.track)}</span><a class="num" href="/t/${esc(o.track)}" style="font-weight:700;overflow-wrap:anywhere">${esc(o.track_url.replace(/^https?:\/\//, ''))}</a></div><button class="btn sm" data-copy="${esc(o.track_url)}">Salin</button></div>
+        </section>` : ''}
         <section class="panel">
           <h2>Rincian</h2>
           ${o.items.map(i => `<div class="sum"><span>${i.qty} × ${esc(i.name)}</span><span class="num">${rp(i.price * i.qty)}</span></div>`).join('')}
@@ -630,12 +634,13 @@ async function viewOrder(number, token) {
 }
 
 async function viewMyOrders() {
-  document.title = 'Pesanan saya — Nelin Batik';
-  if (!S.orders.length) {
-    $('#main').innerHTML = `<div class="wrap empty">Belum ada pesanan dari perangkat ini.<br><a class="btn" href="#/" style="margin-top:14px">Mulai belanja</a></div>`;
-    return;
-  }
-  $('#main').innerHTML = `<div class="wrap order"><h1>Pesanan saya</h1><p class="muted" style="margin:0">Tersimpan di perangkat ini. Simpan juga tautan pesananmu kalau pindah HP.</p><div class="panel" id="olist">Memuat…</div></div>`;
+  document.title = 'Lacak pesanan — Nelin Batik';
+  $('#main').innerHTML = `<div class="wrap order"><h1>Lacak pesanan</h1>
+    <section class="panel">${trackForm()}<p class="muted" style="margin:10px 0 0;font-size:14px">Kodenya ada di halaman pesanan dan di pesan WhatsApp dari toko.</p></section>
+    <h2 style="margin:10px 0 0;font-size:20px">Pesanan dari perangkat ini</h2>
+    ${S.orders.length ? `<div class="panel" id="olist">Memuat…</div>` : `<p class="muted" style="margin:0">Belum ada. <a href="#/">Mulai belanja</a></p>`}</div>`;
+  wireTrackForm();
+  if (!S.orders.length) return;
   const rows = await Promise.all(S.orders.map(async x => {
     try { const o = await api(`/api/store/orders/${encodeURIComponent(x.number)}?t=${encodeURIComponent(x.token)}`); return { x, o }; } catch (_) { return null; }
   }));
@@ -644,6 +649,91 @@ async function viewMyOrders() {
       <div><b class="num">${esc(o.number)}</b><span>${fdt(o.created)} · ${o.items.reduce((a, i) => a + i.qty, 0)} barang · ${rp(o.total)}</span></div>
       <span style="font-weight:700;color:${['batal', 'kedaluwarsa'].includes(o.status) ? 'var(--muted)' : o.status === 'menunggu_bayar' ? 'var(--rose)' : 'var(--tosca)'}">${STATUS[o.status]}</span>
     </a>`).join('') || 'Pesanan tidak ditemukan.';
+}
+
+// ── tracking page: /t/{code} ────────────────────────
+// The link the buyer gets on WhatsApp. One order's progress and nothing else:
+// no shop menus, no prices, no payment or cancel buttons. Anyone holding the
+// link sees this much, so the server only sends what is safe to share.
+const TRACK_RE = /^\/t\/([A-Za-z0-9]{8})\/?$/;
+const TK_HEAD = {
+  menunggu_bayar: 'Menunggu pembayaran', menunggu_verifikasi: 'Pembayaran sedang dicek', diproses: 'Sedang dikemas',
+  dikirim: 'Dalam perjalanan', siap_diambil: 'Siap diambil di toko', selesai: 'Pesanan selesai', batal: 'Pesanan dibatalkan', kedaluwarsa: 'Pesanan kedaluwarsa',
+};
+const cekResi = r => `https://cekresi.com/?noresi=${encodeURIComponent(r)}`;
+let trackTimer;
+async function viewTracker(code) {
+  clearTimeout(trackTimer);
+  document.body.classList.add('track-only');
+  code = code.toUpperCase();
+  let o;
+  try { o = await api(`/api/store/track/${encodeURIComponent(code)}`); }
+  catch (e) {
+    document.title = 'Lacak pesanan — Nelin Batik';
+    $('#main').innerHTML = `<div class="tk"><a class="tk-logo" href="/">Nelin Batik</a>
+      <section class="tk-card"><h1 class="tk-h">Kode ${esc(code)} tidak ditemukan</h1>
+        <p class="muted">Cek lagi kodenya di pesan WhatsApp dari toko: 8 huruf dan angka setelah /t/.</p>${trackForm()}</section></div>`;
+    wireTrackForm();
+    return;
+  }
+  document.title = `${o.number} — Lacak pesanan Nelin Batik`;
+  const pickup = o.delivery === 'ambil', dead = o.status === 'batal' || o.status === 'kedaluwarsa';
+  const first = st => (o.history || []).find(h => st.includes(h.status));
+  // four steps; `done` is how many are behind the buyer, the next one is "now"
+  const steps = [
+    ['Dipesan', o.created],
+    ['Dibayar', first(['diproses'])?.at],
+    [pickup ? 'Siap diambil' : 'Dikirim', first(['dikirim', 'siap_diambil'])?.at],
+    [pickup ? 'Diambil' : 'Diterima', first(['selesai'])?.at],
+  ];
+  const done = { menunggu_bayar: 1, menunggu_verifikasi: 1, diproses: 2, dikirim: 3, siap_diambil: 3, selesai: 4 }[o.status] || 1;
+  const nowNote = { menunggu_bayar: 'menunggu', menunggu_verifikasi: 'sedang dicek', diproses: 'sedang dikemas', dikirim: 'di jalan', siap_diambil: 'di toko' }[o.status] || '';
+  const where = pickup ? 'Ambil di toko' : `${esc(o.courier)} ${esc(o.service)} ke ${esc(o.city)}${o.province ? ', ' + esc(o.province) : ''}${o.etd && o.status === 'dikirim' ? ` · perkiraan ${esc(o.etd)} hari` : ''}`;
+  const wa = waLink(o.shop.wa, `Halo ${o.shop.name}, saya mau tanya pesanan ${o.number}.`);
+  $('#main').innerHTML = `<div class="tk">
+    <a class="tk-logo" href="/">${esc(o.shop.name)}</a>
+    <section class="tk-card tk-main ${dead ? 'dead' : ''}">
+      <p class="tk-no"><span class="num">${esc(o.number)}</span> · atas nama ${esc(o.name)}</p>
+      <h1 class="tk-h">${o.status === 'selesai' && !pickup ? 'Paket sudah diterima' : TK_HEAD[o.status]}</h1>
+      <p class="tk-where">${where}</p>
+      ${dead ? `<p class="muted">${o.status === 'kedaluwarsa' ? 'Pesanan tidak dibayar dalam 24 jam.' : 'Pesanan ini dibatalkan.'} Hubungi toko kalau ada pertanyaan.</p>` : `
+      <ol class="tk-steps">${steps.map(([label, at], i) => `<li class="${i < done ? 'done' : i === done ? 'now' : ''}" ${i === done ? 'aria-current="step"' : ''}>
+        <span class="tk-dot" aria-hidden="true"></span><b>${label}</b><small>${i < done && at ? fdt(at) : i === done ? nowNote : ''}</small></li>`).join('')}</ol>`}
+      ${o.resi ? `<div class="tk-resi"><div><span>Nomor resi ${esc(o.courier)}</span><b class="num">${esc(o.resi)}</b></div>
+        <div class="tk-resi-acts"><button class="btn sm" data-copy="${esc(o.resi)}">Salin resi</button><a class="btn sm dark" href="${cekResi(o.resi)}" target="_blank" rel="noopener">Cek posisi paket</a></div></div>` : ''}
+      ${o.status === 'siap_diambil' ? `<p class="tk-note">Ambil di ${esc(o.shop.address)}. Sebutkan nomor ${esc(o.number)} ke kasir.</p>` : ''}
+      ${o.status === 'menunggu_bayar' ? `<p class="tk-note">Bayar lewat halaman pesanan di HP yang dipakai memesan. Pesanan batal otomatis kalau tidak dibayar dalam 24 jam.</p>` : ''}
+    </section>
+    <section class="tk-card">
+      <h2>Isi paket</h2>
+      <ul class="tk-items">${o.items.map(i => `<li><span>${esc(i.name)}</span><b class="num">${i.qty}×</b></li>`).join('')}</ul>
+    </section>
+    <section class="tk-card">
+      <h2>Riwayat</h2>
+      <ol class="tk-hist">${(o.history || []).slice().reverse().map(h => `<li><time>${fdt(h.at)}</time><span>${esc(h.note)}</span></li>`).join('')}</ol>
+    </section>
+    <div class="tk-acts">
+      <a class="btn wa" target="_blank" rel="noopener" href="${esc(wa)}">Tanya toko soal pesanan ini</a>
+      <a class="btn" href="/">Belanja di ${esc(o.shop.name)}</a>
+    </div>
+    <p class="tk-foot muted">Halaman ini diperbarui otomatis. Terakhir dicek ${new Date().toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit' })} WIB.</p>
+  </div>`;
+  document.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => {
+    try { await navigator.clipboard.writeText(b.dataset.copy); toast('Resi disalin.'); } catch (_) { toast('Tidak bisa menyalin, tekan lama untuk memilih.', true); }
+  });
+  if (!dead && o.status !== 'selesai') trackTimer = setTimeout(() => { if (!document.hidden) viewTracker(code); else document.addEventListener('visibilitychange', () => viewTracker(code), { once: true }); }, 60000);
+}
+// "Lacak pesanan" box: a code (or a pasted link) takes you to /t/{code}.
+const trackForm = () => `<form class="tk-form" id="tkf"><label for="tkc">Kode lacak</label>
+  <div class="tk-form-row"><input class="input num" id="tkc" placeholder="mis. K7QF3M9X" maxlength="80" autocapitalize="characters" autocomplete="off" required>
+  <button class="btn primary">Lacak</button></div><div id="tkerr"></div></form>`;
+function wireTrackForm() {
+  $('#tkf').onsubmit = e => {
+    e.preventDefault();
+    const m = $('#tkc').value.trim().match(/(?:\/t\/)?([A-Za-z0-9]{8})\/?$/);
+    if (!m) { $('#tkerr').innerHTML = `<div class="err">Kode lacak 8 huruf dan angka, ada di pesan WhatsApp dari toko.</div>`; return; }
+    location.href = '/t/' + m[1].toUpperCase();
+  };
 }
 
 // Microsoft Clarity heatmaps, only when the owner has set a project id in
@@ -717,7 +807,7 @@ function drawFooter() {
     <div><h3>Toko</h3><p>${esc(st.address)}</p><p>Buka setiap hari, ${esc(st.hours)}</p>
       <p>WhatsApp <a href="${esc(waLink(st.wa, 'Halo Nelin Batik, saya mau tanya produk.'))}" target="_blank" rel="noopener">${esc(st.wa)}</a></p></div>
     <div><h3>Pembayaran & kirim</h3><p>QRIS, transfer bank</p><p>J&T, JNE, Ninja Xpress, SiCepat, AnterAja, atau ambil di toko</p>
-      <p><a href="#/pesanan">Cek pesanan saya</a></p></div>
+      <p><a href="#/pesanan">Lacak pesanan</a></p></div>
     <div class="complaint"><h3>Layanan pengaduan konsumen</h3>
       <p>${esc(st.name)}: WhatsApp ${esc(st.wa)}, ${esc(st.address)}.</p>
       <p>Direktorat Jenderal Perlindungan Konsumen dan Tertib Niaga, Kementerian Perdagangan RI: WhatsApp 0853 1111 1010.</p></div>
@@ -749,6 +839,8 @@ async function loadCatalog() {
   S.store = c.store; S.products = c.products; S.categories = c.categories;
 }
 async function boot() {
+  const tm = location.pathname.match(TRACK_RE);
+  if (tm) return viewTracker(tm[1]);
   $('#main').innerHTML = `<section class="wrap"><div class="grid loading">${'<div class="card"><div class="swatch"></div></div>'.repeat(8)}</div></section>`;
   try {
     const [, sh] = await Promise.all([loadCatalog(), api('/api/store/shipping')]);

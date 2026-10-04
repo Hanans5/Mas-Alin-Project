@@ -77,7 +77,7 @@ routerAdd("POST", "/api/store/orders", (e) => {
     if (address.postal.length !== 5) throw new BadRequestError("Kode pos harus 5 angka.");
   }
 
-  let number = "", token = "";
+  let number = "", token = "", track = "";
   e.app.runInTransaction((tx) => {
     const cart = SL.priceStoreCart(tx, b.items);
     let shipping = 0, courier = "", service = "", etd = "";
@@ -89,10 +89,11 @@ routerAdd("POST", "/api/store/orders", (e) => {
     const unique = 101 + Math.floor(Math.random() * 399);
     number = SL.nextOrderNumber(tx, L.wibDate());
     token = $security.randomString(32);
+    track = SL.newTrackCode(tx);
 
     const o = new Record(tx.findCollectionByNameOrId("web_orders"));
     o.load({
-      number, token, status: "menunggu_bayar", name, phone, email, address, delivery: b.delivery,
+      number, token, track, status: "menunggu_bayar", name, phone, email, address, delivery: b.delivery,
       items: cart.lines.map((l) => ({ product: l.p.id, name: l.p.getString("name"), sku: l.p.getString("sku"), qty: l.qty, price: l.price, hpp: l.hpp, weight: l.weight })),
       courier, service, etd, weight: cart.weight, subtotal: cart.subtotal, shipping, unique_code: unique,
       total: cart.subtotal + shipping + unique, payment: b.payment, note: String(b.note || "").slice(0, 500),
@@ -107,8 +108,9 @@ routerAdd("POST", "/api/store/orders", (e) => {
   const s = L.settings(e.app);
   SL.sendMail(e.app, email, `Pesanan ${number} — ${s.getString("store_name")}`,
     `<p>Halo ${name},</p><p>Pesanan <b>${number}</b> sudah kami terima. Total <b>Rp ${L.idr(o.getInt("total"))}</b>.</p>` +
-    `<p>Selesaikan pembayaran dalam 24 jam lewat halaman pesananmu.</p>`);
-  return e.json(200, { number, token });
+    `<p>Selesaikan pembayaran dalam 24 jam lewat halaman pesananmu.</p>` +
+    `<p>Lacak pesanan: <a href="${SL.orderLinks(e.app, o).track}">${SL.orderLinks(e.app, o).track}</a></p>`);
+  return e.json(200, { number, token, track });
 });
 
 // ── public: view / pay / cancel own order ───────────
@@ -121,6 +123,17 @@ routerAdd("GET", "/api/store/orders/{number}", (e) => {
   if (!t || !$security.equal(t, o.getString("token"))) throw new NotFoundError("Pesanan tidak ditemukan.");
   e.response.header().set("Cache-Control", "no-store");
   return e.json(200, SL.publicOrder(e.app, o));
+});
+
+// Tracking page: progress only, looked up by the short code in toko…/t/{code}.
+routerAdd("GET", "/api/store/track/{code}", (e) => {
+  const SL = require(`${__hooks}/store_lib.js`);
+  const code = String(e.request.pathValue("code") || "").toUpperCase();
+  let o = null;
+  if (/^[A-Z2-9]{8}$/.test(code)) { try { o = e.app.findFirstRecordByFilter("web_orders", "track = {:c}", { c: code }); } catch (_) {} }
+  if (!o) throw new NotFoundError("Kode lacak tidak ditemukan.");
+  e.response.header().set("Cache-Control", "no-store");
+  return e.json(200, SL.trackView(e.app, o));
 });
 
 // multipart/form-data with a "proof" file
@@ -165,6 +178,7 @@ routerAdd("POST", "/api/store/orders/{number}/cancel", (e) => {
 //   confirm          payment received → creates the sale
 //   reject {reason}  proof not valid → back to menunggu_bayar
 //   ship {resi}      handed to courier
+//   resi {resi}      correct the resi of a shipped order
 //   ready            pickup order ready at the shop
 //   complete         done
 //   cancel {reason}  cancel; returns stock, voids the sale if there was one
@@ -240,6 +254,13 @@ routerAdd("POST", "/api/store/admin/{id}/{action}", (e) => {
       o.set("resi", resi);
       o.set("status", "dikirim");
       SL.addHistory(o, "dikirim", `Dikirim ${o.getString("courier")} ${o.getString("service")}, resi ${resi}`, who);
+    } else if (action === "resi") {
+      need(["dikirim"], "Resi hanya bisa diubah setelah pesanan dikirim.");
+      const resi = String(b.resi || "").trim();
+      if (resi.length < 6) throw new BadRequestError("Isi nomor resi.");
+      if (resi === o.getString("resi")) throw new BadRequestError("Resi tidak berubah.");
+      SL.addHistory(o, "dikirim", `Resi diperbarui: ${resi}`, who);
+      o.set("resi", resi);
     } else if (action === "ready") {
       need(["diproses"]);
       if (o.getString("delivery") !== "ambil") throw new BadRequestError("Pesanan ini dikirim kurir.");
@@ -280,7 +301,9 @@ routerAdd("POST", "/api/store/admin/{id}/{action}", (e) => {
   const o = e.app.findRecordById("web_orders", e.request.pathValue("id"));
   if (["diproses", "dikirim", "siap_diambil"].indexOf(o.getString("status")) !== -1) {
     const labels = { diproses: "sudah kami terima pembayarannya dan sedang dikemas", dikirim: `sudah dikirim. Resi ${o.getString("courier")}: ${o.getString("resi")}`, siap_diambil: "siap diambil di toko" };
-    SL.sendMail(e.app, o.getString("email"), `Pesanan ${o.getString("number")}`, `<p>Halo ${o.getString("name")}, pesanan <b>${o.getString("number")}</b> ${labels[o.getString("status")]}.</p>`);
+    const link = SL.orderLinks(e.app, o).track;
+    if (action !== "resi" || o.getString("status") === "dikirim") SL.sendMail(e.app, o.getString("email"), `Pesanan ${o.getString("number")}`,
+      `<p>Halo ${o.getString("name")}, pesanan <b>${o.getString("number")}</b> ${labels[o.getString("status")]}.</p>` + (link ? `<p>Lacak: <a href="${link}">${link}</a></p>` : ""));
   }
   return e.json(200, o);
 }, $apis.requireAuth("users"));

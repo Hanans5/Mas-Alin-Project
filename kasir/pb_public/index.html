@@ -184,6 +184,18 @@ h3.sec{margin:18px 0 8px;font-size:15px}
 .subtabs button{border:0;background:none;padding:10px 14px;font-weight:700;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;min-height:44px}
 .subtabs button.on{color:var(--accent);border-bottom-color:var(--accent)}
 .link{border:0;background:none;padding:0;color:var(--accent);font-weight:700;text-decoration:underline;text-underline-offset:3px;min-height:0}
+.btn.wa{background:#1f9d55;border-color:#1f9d55;color:#fff;text-decoration:none}
+.linkrow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.linkrow>span{display:grid;min-width:0}.linkrow a{overflow-wrap:anywhere;font-size:13px}
+.ship-list{display:grid;gap:10px}
+.ship{padding:14px 16px;display:grid;gap:10px}
+.ship-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.ship-head .muted{margin-left:auto}
+.ship-body{display:grid;gap:10px}
+@media (min-width:861px){.ship-body{grid-template-columns:1fr minmax(300px,380px);align-items:center}}
+.ship-resi{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+form.ship-resi .input{flex:1;min-width:0}
+.ship-acts{display:flex;gap:6px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:10px}
+.ship-acts .btn{text-decoration:none}
 .themes{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
 .theme-opt{display:grid;gap:4px;align-content:start;border:1.5px solid var(--line);border-radius:12px;padding:12px;cursor:pointer;background:var(--card)}
 .theme-opt:has(input:checked){border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
@@ -364,8 +376,8 @@ function renderLogin(err) {
 
 // ── app shell ───────────────────────────────────────
 const TABS = {
-  owner:     [['dash', 'Dasbor'], ['pos', 'Kasir'], ['tx', 'Transaksi'], ['online', 'Pesanan Online'], ['prod', 'Produk'], ['stock', 'Stok'], ['fin', 'Keuangan'], ['rep', 'Laporan'], ['users', 'Pengguna'], ['set', 'Pengaturan']],
-  admin:     [['dash', 'Dasbor'], ['pos', 'Kasir'], ['tx', 'Transaksi'], ['online', 'Pesanan Online'], ['prod', 'Produk'], ['stock', 'Stok'], ['fin', 'Keuangan'], ['rep', 'Laporan'], ['users', 'Pengguna'], ['set', 'Pengaturan']],
+  owner:     [['dash', 'Dasbor'], ['pos', 'Kasir'], ['tx', 'Transaksi'], ['online', 'Pesanan Online'], ['ship', 'Pengiriman'], ['prod', 'Produk'], ['stock', 'Stok'], ['fin', 'Keuangan'], ['rep', 'Laporan'], ['users', 'Pengguna'], ['set', 'Pengaturan']],
+  admin:     [['dash', 'Dasbor'], ['pos', 'Kasir'], ['tx', 'Transaksi'], ['online', 'Pesanan Online'], ['ship', 'Pengiriman'], ['prod', 'Produk'], ['stock', 'Stok'], ['fin', 'Keuangan'], ['rep', 'Laporan'], ['users', 'Pengguna'], ['set', 'Pengaturan']],
   kasir:     [['pos', 'Kasir'], ['tx', 'Transaksi Hari Ini']],
   pelanggan: [['me', 'Akun Saya']],
 };
@@ -377,6 +389,7 @@ async function startApp() {
     const st = await list('settings', { perPage: 1 });
     S.settings = st.items[0] || { store_name: 'Nelin Batik' };
   } catch (_) { S.settings = { store_name: 'Nelin Batik' }; }
+  await takeDeepLink();
   renderShell();
 }
 function renderShell() {
@@ -391,7 +404,7 @@ function renderShell() {
   <main id="view"></main>`;
   $('#out').onclick = logout;
   document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.tab = b.dataset.tab; renderShell(); });
-  ({ dash: viewDash, pos: viewPOS, tx: viewTx, online: viewOnline, prod: viewProducts, stock: viewStock, fin: viewFinance, rep: viewReports, users: viewUsers, set: viewSettings, me: viewMe })[S.tab]();
+  ({ dash: viewDash, pos: viewPOS, tx: viewTx, online: viewOnline, ship: viewShip, prod: viewProducts, stock: viewStock, fin: viewFinance, rep: viewReports, users: viewUsers, set: viewSettings, me: viewMe })[S.tab]();
 }
 
 // ── POS ─────────────────────────────────────────────
@@ -1600,13 +1613,17 @@ function setOnline(el) {
     <label class="f">Microsoft Clarity project ID <span class="muted">(opsional, heatmap klik & scroll pembeli)</span></label>
     <input class="input" id="o8" maxlength="40" value="${esc(s.clarity_id)}" placeholder="mis. abcd1234ef" autocapitalize="none">
     <div class="muted sm">Daftar gratis di clarity.microsoft.com, buat project untuk toko-nelin, salin ID-nya ke sini. Kosongkan untuk mematikan.</div>
+    <div class="row"><div><label class="f">Alamat toko online</label><input class="input" id="o9" type="url" maxlength="200" value="${esc(s.store_url)}" placeholder="https://toko-nelin.necutbarber.shop"></div>
+    <div><label class="f">Alamat aplikasi kasir</label><input class="input" id="o10" type="url" maxlength="200" value="${esc(s.pos_url)}" placeholder="https://nelin.necutbarber.shop"></div></div>
+    <div class="muted sm">Dipakai untuk link lacak pesanan dan link pesanan di WhatsApp. Ganti di sini kalau pindah ke domain sendiri.</div>
     <div id="oerr"></div>
     <button class="btn primary" style="margin-top:14px">Simpan</button></form>`;
   $('#of').onsubmit = async ev => {
     ev.preventDefault();
     try {
       await saveSettings({ bank_name: $('#o1').value.trim(), bank_account: $('#o2').value.trim(), bank_holder: $('#o3').value.trim(),
-        wa_number: $('#o5').value.trim(), open_hours: $('#o6').value.trim(), email: $('#o7').value.trim(), clarity_id: $('#o8').value.trim().toLowerCase() });
+        wa_number: $('#o5').value.trim(), open_hours: $('#o6').value.trim(), email: $('#o7').value.trim(), clarity_id: $('#o8').value.trim().toLowerCase(),
+        store_url: $('#o9').value.trim().replace(/\/+$/, ''), pos_url: $('#o10').value.trim().replace(/\/+$/, '') });
       const f = $('#o4').files[0];
       if (f) S.settings = await upload(`/api/collections/settings/records/${S.settings.id}`, { qris: f });
       toast('Disimpan.'); setOnline(el);
@@ -1743,10 +1760,36 @@ async function upload(path, fields, method = 'PATCH') {
 }
 const woJson = v => { if (typeof v === 'string') { try { return JSON.parse(v); } catch (_) { return null; } } return v; };
 
+// Links for one order: the buyer's tracking page (toko…/t/{code}) and the
+// order in this app (…/#/o/{number}). Both bases live in Pengaturan → Toko Online.
+const STORE_URL = () => (S.settings.store_url || 'https://toko-nelin.necutbarber.shop').replace(/\/+$/, '');
+const POS_URL = () => (S.settings.pos_url || location.origin).replace(/\/+$/, '');
+const woLinks = o => ({ track: o.track ? `${STORE_URL()}/t/${o.track}` : '', pos: `${POS_URL()}/#/o/${encodeURIComponent(o.number)}` });
+// WhatsApp to the buyer for the order's current state, ending with the tracking link.
+function woMessage(o) {
+  const shop = S.settings.store_name || 'Nelin Batik', link = woLinks(o).track;
+  const body = {
+    menunggu_bayar: `pesanan ${o.number} di ${shop} menunggu pembayaran ${rp(o.total)}.${o.delivery === 'kirim' ? ` Ongkir ${o.courier} ${rp(o.shipping)} sudah kami cek.` : ''}`,
+    menunggu_verifikasi: `bukti bayar pesanan ${o.number} sudah kami terima, sedang kami cek ya.`,
+    diproses: `pembayaran pesanan ${o.number} sudah kami terima. Pesanan sedang dikemas.`,
+    dikirim: `pesanan ${o.number} sudah dikirim lewat ${o.courier} ${o.service}.\nNomor resi: ${o.resi}`,
+    siap_diambil: `pesanan ${o.number} sudah siap diambil di toko ${shop}.`,
+    selesai: `pesanan ${o.number} sudah selesai. Terima kasih sudah belanja di ${shop}!`,
+  }[o.status] || `terkait pesanan ${o.number} di ${shop}…`;
+  return `Halo ${o.name}, ${body}${link ? `\n\nLacak pesanan: ${link}` : ''}\n\nTerima kasih 🙏`;
+}
+const woWa = o => `https://wa.me/${waNumber(o.phone)}?text=${encodeURIComponent(woMessage(o))}`;
+const cekResi = r => `https://cekresi.com/?noresi=${encodeURIComponent(r)}`;
+async function copyText(text, msg) {
+  try { await navigator.clipboard.writeText(text); }
+  catch (_) { const t = document.createElement('textarea'); t.value = text; document.body.append(t); t.select(); document.execCommand('copy'); t.remove(); }
+  toast(msg || 'Disalin.');
+}
+
 async function viewOnline() {
   $('#view').innerHTML = `<div class="chips" id="wg" style="margin-bottom:12px"></div>
     <div class="card"><table class="tbl" id="wtbl"><thead><tr><th>Pesanan</th><th>Pembeli</th><th>Kirim</th><th class="r">Total</th><th>Status</th><th></th></tr></thead><tbody><tr><td colspan="6" class="empty">Memuat…</td></tr></tbody></table></div>
-    <div class="muted sm" style="margin-top:8px">Toko online: <a href="https://toko-nelin.necutbarber.shop" target="_blank" rel="noopener">toko-nelin.necutbarber.shop</a>. Pesanan belum bayar batal otomatis setelah 24 jam dan stoknya kembali.</div>`;
+    <div class="muted sm" style="margin-top:8px">Toko online: <a href="${esc(STORE_URL())}" target="_blank" rel="noopener">${esc(STORE_URL().replace(/^https?:\/\//, ''))}</a>. Pesanan belum bayar batal otomatis setelah 24 jam dan stoknya kembali.</div>`;
   let all = [];
   const draw = () => {
     const counts = Object.fromEntries(WO_GROUPS.map(([k, , st]) => [k, all.filter(o => st.includes(o.status)).length]));
@@ -1764,77 +1807,184 @@ async function viewOnline() {
         <td data-l="Status"><span class="badge ${WO_BADGE[o.status]}">${WO_LABEL[o.status]}</span></td>
         <td class="r"><button class="btn sm ${o.status === 'menunggu_verifikasi' ? 'primary' : ''}" data-o="${o.id}">Buka</button></td></tr>`;
     }).join('') : `<tr><td colspan="6" class="empty">Tidak ada pesanan di sini.</td></tr>`;
-    $('#wtbl').querySelectorAll('[data-o]').forEach(b => b.onclick = () => openOrder(all.find(o => o.id === b.dataset.o)));
+    $('#wtbl').querySelectorAll('[data-o]').forEach(b => b.onclick = () => openWebOrder(all.find(o => o.id === b.dataset.o), load));
   };
   const load = async () => {
-    try { all = (await list('web_orders', { sort: '-created', perPage: 300 })).items; draw(); }
+    try { all = (await list('web_orders', { sort: '-created', perPage: 300 })).items; draw(); openDeepOrder(all, load); }
     catch (e) { $('#wtbl tbody').innerHTML = `<tr><td colspan="6"><div class="err">${esc(e.message)}</div></td></tr>`; }
   };
-  const act = async (o, action, body = {}) => {
-    const r = await api(`/api/store/admin/${o.id}/${action}`, { method: 'POST', body });
-    toast('Tersimpan.'); await load(); openOrder(r);
-  };
-  function openOrder(o) {
-    const items = woJson(o.items) || [], a = woJson(o.address) || {}, hist = woJson(o.history) || [];
-    const proof = o.proof ? `/api/files/web_orders/${o.id}/${o.proof}` : '';
-    const pre = ['menunggu_bayar', 'menunggu_verifikasi'].includes(o.status);
-    const addrText = `${o.name} (${o.phone})\n${a.street}, ${a.district}, ${a.city}, ${a.province} ${a.postal}`;
-    const msg = {
-      menunggu_bayar: `Halo ${o.name}, pesanan ${o.number} di Nelin Batik menunggu pembayaran ${rp(o.total)}. Ongkir ${o.courier || ''} ${rp(o.shipping)} sudah kami cek. Terima kasih 🙏`,
-      menunggu_verifikasi: `Halo ${o.name}, bukti bayar pesanan ${o.number} sudah kami terima, sedang kami cek ya.`,
-      diproses: `Halo ${o.name}, pembayaran pesanan ${o.number} sudah kami terima. Pesanan sedang dikemas 🙏`,
-      dikirim: `Halo ${o.name}, pesanan ${o.number} sudah dikirim lewat ${o.courier} ${o.service}. Nomor resi: ${o.resi}`,
-      siap_diambil: `Halo ${o.name}, pesanan ${o.number} sudah siap diambil di toko Nelin Batik.`,
-    }[o.status] || `Halo ${o.name}, terkait pesanan ${o.number} di Nelin Batik…`;
-    openModal(`
-      <h2 class="num">${esc(o.number)} <span class="badge ${WO_BADGE[o.status]}">${WO_LABEL[o.status]}</span></h2>
-      <div class="muted">${fmtTime(o.created)} · ${o.payment === 'qris' ? 'QRIS' : 'Transfer'}${o.status === 'menunggu_bayar' && o.expires_at ? ` · batal otomatis ${fmtTime(o.expires_at)}` : ''}</div>
-      <h3 class="sec">Barang</h3>
-      ${items.map(i => `<div class="sum"><span>${i.qty} × ${esc(i.name)} <span class="muted num">${esc(i.sku)}</span></span><span class="num">${rp(i.price * i.qty)}</span></div>`).join('')}
-      <div class="sum"><span>Ongkir ${o.delivery === 'kirim' ? `(${esc(o.courier)} ${esc(o.service)}, ${(o.weight / 1000).toLocaleString('id-ID')} kg${o.shipping_adjusted ? ', sudah dicek' : ', perkiraan'})` : '(ambil di toko)'}</span><span class="num">${rp(o.shipping)}</span></div>
-      <div class="sum"><span>Kode unik</span><span class="num">${rp(o.unique_code)}</span></div>
-      <div class="sum total"><span>Harus dibayar</span><span class="num">${rp(o.total)}</span></div>
-      ${o.delivery === 'kirim' ? `<h3 class="sec">Alamat kirim</h3><div style="white-space:pre-line">${esc(addrText)}</div><button class="btn sm" id="wcopy" style="margin-top:6px">Salin alamat</button>` : ''}
-      ${o.note ? `<h3 class="sec">Catatan pembeli</h3><div>${esc(o.note)}</div>` : ''}
-      ${proof ? `<h3 class="sec">Bukti bayar</h3>${/\.pdf$/i.test(o.proof) ? `<a class="btn sm" href="${proof}" target="_blank" rel="noopener">Buka PDF</a>` : `<a href="${proof}" target="_blank" rel="noopener"><img src="${proof}" alt="Bukti bayar" style="max-height:260px;border-radius:8px;border:1px solid var(--line)"></a>`}
-        <div class="muted sm">Cocokkan dengan mutasi rekening: nominal persis ${rp(o.total)}.</div>` : ''}
-      ${pre && o.delivery === 'kirim' ? `<h3 class="sec">Cek ulang ongkir</h3><div class="row"><input class="input num" id="wfee" inputmode="numeric" value="${o.shipping}"><button class="btn" id="wfeeok" style="flex:0 0 auto">Ubah ongkir</button></div>` : ''}
-      ${o.status === 'diproses' && o.delivery === 'kirim' ? `<h3 class="sec">Nomor resi ${esc(o.courier)}</h3><input class="input" id="wresi" placeholder="mis. JX1234567890">` : ''}
-      <div id="werr"></div>
-      <div class="row" style="margin-top:14px;flex-wrap:wrap">
-        ${pre ? `<button class="btn primary" id="wconf">Pembayaran diterima</button>` : ''}
-        ${o.status === 'menunggu_verifikasi' ? `<button class="btn" id="wrej">Tolak bukti</button>` : ''}
-        ${o.status === 'diproses' ? (o.delivery === 'kirim' ? `<button class="btn primary" id="wship">Simpan resi & kirim</button>` : `<button class="btn primary" id="wready">Siap diambil</button>`) : ''}
-        ${['dikirim', 'siap_diambil'].includes(o.status) ? `<button class="btn primary" id="wdone">Tandai selesai</button>` : ''}
-      </div>
-      <a class="btn block" style="margin-top:8px;background:#1f9d55;border-color:#1f9d55;color:#fff" target="_blank" rel="noopener" href="https://wa.me/${waNumber(o.phone)}?text=${encodeURIComponent(msg)}">WhatsApp pembeli</a>
-      ${['menunggu_bayar', 'menunggu_verifikasi', 'diproses'].includes(o.status) ? `<button class="btn danger block" id="wcancel" style="margin-top:8px">Batalkan pesanan</button>` : ''}
-      <h3 class="sec">Riwayat</h3>
-      ${hist.slice().reverse().map(h => `<div class="sum"><span>${esc(h.note)}${h.by ? ` <span class="muted">· ${esc(h.by)}</span>` : ''}</span><span class="muted sm" style="white-space:nowrap">${fmtTime(String(h.at).replace('T', ' '))}</span></div>`).join('')}`);
-    const fail = e => { $('#werr').innerHTML = `<div class="err">${esc(e.message)}</div>`; };
-    const on = (id, fn) => { const b = $('#' + id); if (b) b.onclick = async () => { b.disabled = true; try { await fn(); } catch (e) { fail(e); b.disabled = false; } }; };
-    on('wcopy', async () => { await navigator.clipboard.writeText(addrText); toast('Alamat disalin.'); $('#wcopy').disabled = false; });
-    on('wfeeok', () => act(o, 'shipping', { fee: parseInt($('#wfee').value.replace(/\D/g, ''), 10) || 0 }));
-    on('wconf', async () => {
-      if (!confirmInline('werr', `Pastikan ${rp(o.total)} sudah masuk ke rekening/QRIS. Tekan lagi untuk konfirmasi.`)) { $('#wconf').disabled = false; return; }
-      await act(o, 'confirm');
-    });
-    on('wrej', async () => {
-      const reason = $('#wrejr')?.value.trim();
-      if (!reason) { $('#werr').innerHTML = `<input class="input" id="wrejr" placeholder="Alasan, mis. nominal tidak sesuai" style="margin-top:10px">`; $('#wrejr').focus(); $('#wrej').disabled = false; return; }
-      await act(o, 'reject', { reason });
-    });
-    on('wship', () => act(o, 'ship', { resi: $('#wresi').value.trim() }));
-    on('wready', () => act(o, 'ready'));
-    on('wdone', () => act(o, 'complete'));
-    on('wcancel', async () => {
-      const reason = $('#wcanr')?.value.trim();
-      if (!reason) { $('#werr').innerHTML = `<input class="input" id="wcanr" placeholder="Alasan pembatalan" style="margin-top:10px"><div class="muted sm">Stok dikembalikan.${o.sale ? ' Penjualan dibatalkan; kembalikan dana pembeli secara manual.' : ''}</div>`; $('#wcanr').focus(); $('#wcancel').disabled = false; return; }
-      await act(o, 'cancel', { reason });
-    });
-  }
   load();
 }
+
+// One order in a modal: items, address, proof, the next action, links, history.
+// `reload` refreshes whichever list opened it.
+function openWebOrder(o, reload) {
+  const items = woJson(o.items) || [], a = woJson(o.address) || {}, hist = woJson(o.history) || [];
+  const proof = o.proof ? `/api/files/web_orders/${o.id}/${o.proof}` : '';
+  const pre = ['menunggu_bayar', 'menunggu_verifikasi'].includes(o.status);
+  const addrText = `${o.name} (${o.phone})\n${a.street}, ${a.district}, ${a.city}, ${a.province} ${a.postal}`;
+  const links = woLinks(o);
+  const act = async (action, body = {}) => {
+    const r = await api(`/api/store/admin/${o.id}/${action}`, { method: 'POST', body });
+    toast('Tersimpan.'); await reload(); openWebOrder(r, reload);
+  };
+  openModal(`
+    <h2 class="num">${esc(o.number)} <span class="badge ${WO_BADGE[o.status]}">${WO_LABEL[o.status]}</span></h2>
+    <div class="muted">${fmtTime(o.created)} · ${o.payment === 'qris' ? 'QRIS' : 'Transfer'}${o.status === 'menunggu_bayar' && o.expires_at ? ` · batal otomatis ${fmtTime(o.expires_at)}` : ''}</div>
+    <h3 class="sec">Barang</h3>
+    ${items.map(i => `<div class="sum"><span>${i.qty} × ${esc(i.name)} <span class="muted num">${esc(i.sku)}</span></span><span class="num">${rp(i.price * i.qty)}</span></div>`).join('')}
+    <div class="sum"><span>Ongkir ${o.delivery === 'kirim' ? `(${esc(o.courier)} ${esc(o.service)}, ${(o.weight / 1000).toLocaleString('id-ID')} kg${o.shipping_adjusted ? ', sudah dicek' : ', perkiraan'})` : '(ambil di toko)'}</span><span class="num">${rp(o.shipping)}</span></div>
+    <div class="sum"><span>Kode unik</span><span class="num">${rp(o.unique_code)}</span></div>
+    <div class="sum total"><span>Harus dibayar</span><span class="num">${rp(o.total)}</span></div>
+    ${o.delivery === 'kirim' ? `<h3 class="sec">Alamat kirim</h3><div style="white-space:pre-line">${esc(addrText)}</div><button class="btn sm" id="wcopy" style="margin-top:6px">Salin alamat</button>` : ''}
+    ${o.note ? `<h3 class="sec">Catatan pembeli</h3><div>${esc(o.note)}</div>` : ''}
+    ${proof ? `<h3 class="sec">Bukti bayar</h3>${/\.pdf$/i.test(o.proof) ? `<a class="btn sm" href="${proof}" target="_blank" rel="noopener">Buka PDF</a>` : `<a href="${proof}" target="_blank" rel="noopener"><img src="${proof}" alt="Bukti bayar" style="max-height:260px;border-radius:8px;border:1px solid var(--line)"></a>`}
+      <div class="muted sm">Cocokkan dengan mutasi rekening: nominal persis ${rp(o.total)}.</div>` : ''}
+    ${pre && o.delivery === 'kirim' ? `<h3 class="sec">Cek ulang ongkir</h3><div class="row"><input class="input num" id="wfee" inputmode="numeric" value="${o.shipping}"><button class="btn" id="wfeeok" style="flex:0 0 auto">Ubah ongkir</button></div>` : ''}
+    ${o.status === 'diproses' && o.delivery === 'kirim' ? `<h3 class="sec">Nomor resi ${esc(o.courier)}</h3><input class="input" id="wresi" placeholder="mis. JX1234567890" autocapitalize="characters">` : ''}
+    ${o.status === 'dikirim' ? `<h3 class="sec">Resi ${esc(o.courier)} ${esc(o.service)}</h3><div class="row"><input class="input num" id="wresi2" value="${esc(o.resi)}"><button class="btn" id="wresiok" style="flex:0 0 auto">Ubah resi</button></div>
+      <a class="muted sm" href="${cekResi(o.resi)}" target="_blank" rel="noopener">Cek posisi paket di cekresi.com</a>` : ''}
+    <div id="werr"></div>
+    <div class="row" style="margin-top:14px;flex-wrap:wrap">
+      ${pre ? `<button class="btn primary" id="wconf">Pembayaran diterima</button>` : ''}
+      ${o.status === 'menunggu_verifikasi' ? `<button class="btn" id="wrej">Tolak bukti</button>` : ''}
+      ${o.status === 'diproses' ? (o.delivery === 'kirim' ? `<button class="btn primary" id="wship">Simpan resi & kirim</button>` : `<button class="btn primary" id="wready">Siap diambil</button>`) : ''}
+      ${['dikirim', 'siap_diambil'].includes(o.status) ? `<button class="btn primary" id="wdone">${o.status === 'dikirim' ? 'Paket sudah diterima' : 'Sudah diambil'}</button>` : ''}
+    </div>
+    <a class="btn block wa" style="margin-top:8px" target="_blank" rel="noopener" href="${woWa(o)}">WhatsApp pembeli</a>
+    ${['menunggu_bayar', 'menunggu_verifikasi', 'diproses'].includes(o.status) ? `<button class="btn danger block" id="wcancel" style="margin-top:8px">Batalkan pesanan</button>` : ''}
+    <h3 class="sec">Link pesanan</h3>
+    ${links.track ? `<div class="linkrow"><span><b>Lacak</b> <span class="muted sm">untuk pembeli, tanpa login</span><a href="${esc(links.track)}" target="_blank" rel="noopener">${esc(links.track.replace(/^https?:\/\//, ''))}</a></span><button class="btn sm" data-copy="${esc(links.track)}">Salin</button></div>` : ''}
+    <div class="linkrow"><span><b>Kasir</b> <span class="muted sm">untuk staf, perlu login</span><a href="${esc(links.pos)}">${esc(links.pos.replace(/^https?:\/\//, ''))}</a></span><button class="btn sm" data-copy="${esc(links.pos)}">Salin</button></div>
+    <h3 class="sec">Riwayat</h3>
+    ${hist.slice().reverse().map(h => `<div class="sum"><span>${esc(h.note)}${h.by ? ` <span class="muted">· ${esc(h.by)}</span>` : ''}</span><span class="muted sm" style="white-space:nowrap">${fmtTime(String(h.at).replace('T', ' '))}</span></div>`).join('')}`);
+  const fail = e => { $('#werr').innerHTML = `<div class="err">${esc(e.message)}</div>`; };
+  const on = (id, fn) => { const b = $('#' + id); if (b) b.onclick = async () => { b.disabled = true; try { await fn(); } catch (e) { fail(e); b.disabled = false; } }; };
+  document.querySelectorAll('.modal [data-copy]').forEach(b => b.onclick = () => copyText(b.dataset.copy, 'Link disalin.'));
+  on('wcopy', async () => { await copyText(addrText, 'Alamat disalin.'); $('#wcopy').disabled = false; });
+  on('wfeeok', () => act('shipping', { fee: parseInt($('#wfee').value.replace(/\D/g, ''), 10) || 0 }));
+  on('wconf', async () => {
+    if (!confirmInline('werr', `Pastikan ${rp(o.total)} sudah masuk ke rekening/QRIS. Tekan lagi untuk konfirmasi.`)) { $('#wconf').disabled = false; return; }
+    await act('confirm');
+  });
+  on('wrej', async () => {
+    const reason = $('#wrejr')?.value.trim();
+    if (!reason) { $('#werr').innerHTML = `<input class="input" id="wrejr" placeholder="Alasan, mis. nominal tidak sesuai" style="margin-top:10px">`; $('#wrejr').focus(); $('#wrej').disabled = false; return; }
+    await act('reject', { reason });
+  });
+  on('wship', () => act('ship', { resi: $('#wresi').value.trim().toUpperCase() }));
+  on('wresiok', () => act('resi', { resi: $('#wresi2').value.trim().toUpperCase() }));
+  on('wready', () => act('ready'));
+  on('wdone', () => act('complete'));
+  on('wcancel', async () => {
+    const reason = $('#wcanr')?.value.trim();
+    if (!reason) { $('#werr').innerHTML = `<input class="input" id="wcanr" placeholder="Alasan pembatalan" style="margin-top:10px"><div class="muted sm">Stok dikembalikan.${o.sale ? ' Penjualan dibatalkan; kembalikan dana pembeli secara manual.' : ''}</div>`; $('#wcanr').focus(); $('#wcancel').disabled = false; return; }
+    await act('cancel', { reason });
+  });
+}
+
+// ── pengiriman (owner/admin) ────────────────────────
+// Paid web orders from packing to the buyer's door: type the resi, send the
+// buyer a WhatsApp with their tracking link, mark delivered.
+const SH_GROUPS = [
+  ['kirim', 'Perlu dikirim', o => o.status === 'diproses' && o.delivery === 'kirim'],
+  ['jalan', 'Dalam perjalanan', o => o.status === 'dikirim'],
+  ['ambil', 'Ambil di toko', o => ['diproses', 'siap_diambil'].includes(o.status) && o.delivery === 'ambil'],
+  ['selesai', 'Selesai', o => o.status === 'selesai'],
+];
+const SHS = { group: 'kirim', q: '' };
+async function viewShip() {
+  $('#view').innerHTML = `<div id="shtabs"></div>
+    <div class="toolbar"><input class="input" id="shq" placeholder="Cari no. pesanan / nama / resi / HP" value="${esc(SHS.q)}"></div>
+    <div id="shlist" class="ship-list"><div class="card empty">Memuat…</div></div>`;
+  let all = [];
+  const tabs = () => subTabs($('#shtabs'), SH_GROUPS.map(([k, l, f]) => [k, `${l} <span class="cnt">${all.filter(f).length}</span>`]), SHS, 'group', draw);
+  const card = o => {
+    const items = woJson(o.items) || [], a = woJson(o.address) || {}, links = woLinks(o);
+    const shipped = (woJson(o.history) || []).filter(h => h.status === 'dikirim').shift();
+    return `<div class="card ship" data-id="${o.id}">
+      <div class="ship-head"><b class="num">${esc(o.number)}</b><span class="badge ${WO_BADGE[o.status]}">${WO_LABEL[o.status]}</span>
+        <span class="muted sm">${o.status === 'dikirim' && shipped ? 'dikirim ' + fmtTime(String(shipped.at).replace('T', ' ')) : 'dipesan ' + fmtTime(o.created)}</span></div>
+      <div class="ship-body">
+        <div><b>${esc(o.name)}</b> <span class="muted">${esc(o.phone)}</span>
+          <div class="muted sm">${o.delivery === 'kirim' ? `${esc(a.city || '')}, ${esc(a.province || '')} · ${esc(o.courier)} ${esc(o.service)} · ${(o.weight / 1000).toLocaleString('id-ID')} kg` : 'Ambil di toko'}</div>
+          <div class="sm" style="margin-top:4px">${items.map(i => `${i.qty}× ${esc(i.name)}`).join(', ')}</div></div>
+        ${o.status === 'diproses' && o.delivery === 'kirim' ? `<form class="ship-resi" data-ship="${o.id}"><input class="input num" name="resi" placeholder="Nomor resi ${esc(o.courier)}" autocapitalize="characters" required minlength="6"><button class="btn primary">Kirim</button></form>` : ''}
+        ${o.status === 'dikirim' ? `<div class="ship-resi"><span class="muted sm">Resi</span> <b class="num">${esc(o.resi)}</b>
+          <button class="btn sm" data-copy="${esc(o.resi)}" data-msg="Resi disalin.">Salin</button><a class="btn sm" href="${cekResi(o.resi)}" target="_blank" rel="noopener">Cek posisi</a></div>` : ''}
+      </div>
+      <div class="ship-acts">
+        <a class="btn sm wa" target="_blank" rel="noopener" href="${woWa(o)}">WhatsApp pembeli</a>
+        ${links.track ? `<button class="btn sm" data-copy="${esc(links.track)}" data-msg="Link lacak disalin.">Salin link lacak</button>` : ''}
+        ${o.status === 'dikirim' ? `<button class="btn sm" data-act="complete">Paket diterima</button>` : ''}
+        ${o.status === 'diproses' && o.delivery === 'ambil' ? `<button class="btn sm primary" data-act="ready">Siap diambil</button>` : ''}
+        ${o.status === 'siap_diambil' ? `<button class="btn sm" data-act="complete">Sudah diambil</button>` : ''}
+        <button class="btn sm ghost" data-open>Detail</button>
+      </div><div class="ship-err"></div></div>`;
+  };
+  const draw = () => {
+    const f = SH_GROUPS.find(g => g[0] === SHS.group)[2], q = SHS.q.trim().toLowerCase();
+    let rows = all.filter(f).filter(o => !q || [o.number, o.name, o.resi, o.phone, o.track].some(v => (v || '').toLowerCase().includes(q)));
+    if (SHS.group === 'kirim' || SHS.group === 'ambil') rows.reverse();  // longest waiting first
+    if (SHS.group === 'selesai') rows = rows.slice(0, 50);
+    const none = { kirim: 'Tidak ada paket yang menunggu dikirim.', jalan: 'Tidak ada paket di perjalanan.', ambil: 'Tidak ada pesanan ambil di toko.', selesai: 'Belum ada pesanan selesai.' }[SHS.group];
+    $('#shlist').innerHTML = rows.length ? rows.map(card).join('') : `<div class="card empty">${q ? 'Tidak ada yang cocok.' : none}</div>`;
+    const byId = id => all.find(o => o.id === id);
+    $('#shlist').querySelectorAll('[data-copy]').forEach(b => b.onclick = () => copyText(b.dataset.copy, b.dataset.msg));
+    $('#shlist').querySelectorAll('[data-open]').forEach(b => b.onclick = () => openWebOrder(byId(b.closest('[data-id]').dataset.id), load));
+    $('#shlist').querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {
+      const c = b.closest('[data-id]'); b.disabled = true;
+      try { await api(`/api/store/admin/${c.dataset.id}/${b.dataset.act}`, { method: 'POST', body: {} }); toast('Tersimpan.'); await load(); }
+      catch (e) { $('.ship-err', c).innerHTML = `<div class="err">${esc(e.message)}</div>`; b.disabled = false; }
+    });
+    $('#shlist').querySelectorAll('form[data-ship]').forEach(f => f.onsubmit = async ev => {
+      ev.preventDefault();
+      const c = f.closest('[data-id]'), btn = $('button', f); btn.disabled = true;
+      try {
+        const r = await api(`/api/store/admin/${f.dataset.ship}/ship`, { method: 'POST', body: { resi: f.resi.value.trim().toUpperCase() } });
+        await load();
+        // The buyer hears about it right away: one tap opens WhatsApp with the resi and tracking link.
+        openModal(`<h2>Paket dikirim</h2><p>${esc(r.number)} · ${esc(r.courier)} ${esc(r.service)} · resi <b class="num">${esc(r.resi)}</b></p>
+          <p class="muted sm" style="white-space:pre-line;background:var(--bg);border-radius:10px;padding:10px 12px">${esc(woMessage(r))}</p>
+          <a class="btn block wa" target="_blank" rel="noopener" href="${woWa(r)}" id="shwa">Kirim WhatsApp ke ${esc(r.name)}</a>
+          <button class="btn block" style="margin-top:8px" id="shclose">Nanti saja</button>`);
+        $('#shwa').addEventListener('click', () => setTimeout(closeModal, 300));
+        $('#shclose').onclick = closeModal;
+      } catch (e) { $('.ship-err', c).innerHTML = `<div class="err">${esc(e.message)}</div>`; btn.disabled = false; }
+    });
+  };
+  const load = async () => {
+    try { all = (await list('web_orders', { filter: 'status = "diproses" || status = "dikirim" || status = "siap_diambil" || status = "selesai"', sort: '-created', perPage: 500 })).items; tabs(); draw(); openDeepOrder(all, load); }
+    catch (e) { $('#shlist').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  };
+  $('#shq').oninput = () => { SHS.q = $('#shq').value; draw(); };
+  load();
+}
+
+// …/#/o/{number}: the order link in WhatsApp messages. After login it opens
+// Pengiriman (paid orders) or Pesanan Online (the rest) with that order.
+async function takeDeepLink() {
+  const m = location.hash.match(/^#\/o\/([A-Za-z0-9-]+)$/);
+  if (!m) return false;
+  history.replaceState(null, '', location.pathname + location.search);
+  if (!TABS[role()].some(t => t[0] === 'online')) return false;
+  try {
+    const o = (await list('web_orders', { filter: `number = ${pbq(decodeURIComponent(m[1]))}`, perPage: 1 })).items[0];
+    if (!o) { toast('Pesanan ' + m[1] + ' tidak ditemukan.', true); return false; }
+    const g = SH_GROUPS.find(([, , f]) => f(o));
+    if (g) { S.tab = 'ship'; SHS.group = g[0]; SHS.q = ''; }
+    else { S.tab = 'online'; WS.group = (WO_GROUPS.find(x => x[2].includes(o.status)) || WO_GROUPS[0])[0]; }
+    S.deep = o.id;
+    return true;
+  } catch (_) { return false; }
+}
+function openDeepOrder(all, reload) {
+  if (!S.deep) return;
+  const o = all.find(x => x.id === S.deep);
+  S.deep = '';
+  if (o) openWebOrder(o, reload);
+}
+window.addEventListener('hashchange', async () => { if (S.user && await takeDeepLink()) renderShell(); });
 
 // ── pelanggan ───────────────────────────────────────
 async function viewMe() {
