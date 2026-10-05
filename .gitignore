@@ -6,3 +6,6 @@ kasir/pocketbase
 *.db
 *.db-*
 .env*
+
+# Private notes about the client (business figures, reviews). Never publish.
+/docs/
