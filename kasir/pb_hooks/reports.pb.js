@@ -67,10 +67,16 @@ routerAdd("GET", "/api/reports/sales", (e) => {
        FROM sale_items i JOIN sales s ON s.id = i.sale LEFT JOIN products p ON p.id = i.product
       WHERE ${live} GROUP BY i.product ORDER BY qty DESC`,
     r, { name: "", sku: "", qty: 0, amount: 0 });
+  // Money kept at the till per method: payment rows, plus older sales' single method.
   const perMethod = L.query(e.app,
-    `SELECT COALESCE(m.name,'-') AS method, COUNT(*) AS count, SUM(s.paid) AS paid
-       FROM sales s LEFT JOIN payment_methods m ON m.id = s.payment_method
-      WHERE ${live} GROUP BY s.payment_method ORDER BY paid DESC`,
+    `SELECT method, COUNT(DISTINCT sale) AS count, SUM(amount) AS paid FROM (
+       SELECT COALESCE(m.name,'-') AS method, sp.sale AS sale, sp.amount AS amount
+         FROM sale_payments sp JOIN sales s ON s.id = sp.sale LEFT JOIN payment_methods m ON m.id = sp.payment_method WHERE ${live}
+       UNION ALL
+       SELECT COALESCE(m.name,'-'), s.id, s.paid
+         FROM sales s LEFT JOIN payment_methods m ON m.id = s.payment_method
+        WHERE ${live} AND s.paid > 0 AND NOT EXISTS (SELECT 1 FROM sale_payments sp WHERE sp.sale = s.id)
+     ) GROUP BY method ORDER BY paid DESC`,
     r, { method: "", count: 0, paid: 0 });
   const perCashier = L.query(e.app,
     `SELECT COALESCE(NULLIF(u.name,''), u.username) AS cashier, COUNT(*) AS count, SUM(s.total) AS total
@@ -113,7 +119,8 @@ routerAdd("GET", "/api/reports/profit-loss", (e) => {
 }, $apis.requireAuth("users"));
 
 // GET /api/reports/cashbook?from&to — owner only. Money in and out, built at
-// read time from sales, debt payments, expenses and manual cash entries.
+// read time from till payments (sale_payments, one line per method; older
+// sales without rows use sales.paid), bon payments, expenses and manual entries.
 routerAdd("GET", "/api/reports/cashbook", (e) => {
   const L = require(`${__hooks}/lib.js`);
   L.requireRole(e, ["owner"]);
@@ -122,10 +129,16 @@ routerAdd("GET", "/api/reports/cashbook", (e) => {
 
   // One UNION of every money movement, each tagged with its WIB day.
   const all = `
-    SELECT date(datetime(s.created,'+7 hours')) AS day, s.created AS at, 'masuk' AS type, s.paid AS amount,
-           'Penjualan' AS source, s.number AS ref, COALESCE(m.name,'') AS method, '' AS note
+    SELECT date(datetime(s.created,'+7 hours')) AS day, s.created AS at, 'masuk' AS type, sp.amount AS amount,
+           CASE WHEN EXISTS (SELECT 1 FROM receivables rc WHERE rc.sale = s.id) THEN 'DP penjualan' ELSE 'Penjualan' END AS source,
+           s.number AS ref, COALESCE(m.name,'') AS method, '' AS note
+      FROM sale_payments sp JOIN sales s ON s.id = sp.sale LEFT JOIN payment_methods m ON m.id = sp.payment_method
+     WHERE s.status != 'batal'
+    UNION ALL
+    SELECT date(datetime(s.created,'+7 hours')), s.created, 'masuk', s.paid,
+           'Penjualan', s.number, COALESCE(m.name,''), ''
       FROM sales s LEFT JOIN payment_methods m ON m.id = s.payment_method
-     WHERE s.status != 'batal' AND s.paid > 0
+     WHERE s.status != 'batal' AND s.paid > 0 AND NOT EXISTS (SELECT 1 FROM sale_payments sp WHERE sp.sale = s.id)
     UNION ALL
     SELECT date(datetime(rp.created,'+7 hours')), rp.created, 'masuk', rp.amount,
            'Bayar piutang', s.number, COALESCE(m.name,''), rp.note
@@ -179,13 +192,15 @@ routerAdd("GET", "/api/reports/table", (e) => {
   if (q.type === "penjualan") {
     title = "Laporan Penjualan";
     columns = [C("created", "Tanggal", "date"), C("number", "No. transaksi"), C("karyawan", "Karyawan"), C("pelanggan", "Pelanggan"), C("items", "Item", "num"),
-      C("subtotal", "Subtotal", "rp"), C("discount", "Diskon", "rp"), C("total", "Total", "rp"), C("metode", "Metode"), C("status", "Status"), ...profit];
+      C("subtotal", "Subtotal", "rp"), C("discount", "Diskon", "rp"), C("total", "Total", "rp"), C("paid", "Dibayar", "rp"), C("metode", "Metode"), C("status", "Status"), ...profit];
     rows = L.query(e.app, `SELECT x.created, x.number, COALESCE(em.name, '-') AS karyawan,
-        COALESCE(NULLIF(c.name,''), c.username, 'Umum') AS pelanggan, x.items, x.subtotal, x.discount, x.total,
-        COALESCE(m.name, '-') AS metode, CASE WHEN x.kind = 'tukar' THEN 'tukar' ELSE x.status END AS status, x.total - x.hpp_total AS laba
+        COALESCE(NULLIF(c.name,''), c.username, 'Umum') AS pelanggan, x.items, x.subtotal, x.discount, x.total, x.paid,
+        COALESCE((SELECT GROUP_CONCAT(pm.name, ' + ') FROM sale_payments sp JOIN payment_methods pm ON pm.id = sp.payment_method WHERE sp.sale = x.id), m.name,
+          CASE WHEN x.status = 'piutang' THEN 'Bon' ELSE '-' END) AS metode,
+        CASE WHEN x.kind = 'tukar' THEN 'tukar' WHEN x.status = 'piutang' THEN 'bon' ELSE x.status END AS status, x.total - x.hpp_total AS laba
         FROM (${perSale}) x LEFT JOIN employees em ON em.id = x.employee LEFT JOIN users c ON c.id = x.customer
         LEFT JOIN payment_methods m ON m.id = x.payment_method ORDER BY x.created`, r,
-      { created: "", number: "", karyawan: "", pelanggan: "", items: 0, subtotal: 0, discount: 0, total: 0, metode: "", status: "", laba: 0 });
+      { created: "", number: "", karyawan: "", pelanggan: "", items: 0, subtotal: 0, discount: 0, total: 0, paid: 0, metode: "", status: "", laba: 0 });
   } else if (q.type === "produk" || q.type === "kategori") {
     const byCat = q.type === "kategori";
     title = byCat ? "Laporan Kategori Produk" : "Laporan Produk";
@@ -245,4 +260,58 @@ routerAdd("GET", "/api/reports/table", (e) => {
   // Keep only the listed columns (profit stays server-side for admins).
   rows = rows.map((x) => { const o = {}; for (const c of columns) o[c.key] = x[c.key]; return o; });
   return e.json(200, { title, from: q.from, to: q.to, columns, rows, totals });
+}, $apis.requireAuth("users"));
+
+// ── pelanggan spending (for Mas Alin's bonuses; replaces points) ──
+// GET /api/customers/spend — per pelanggan: total spent, transactions, last
+// purchase and open bon. Owner/admin. Voided sales don't count; a bon sale
+// counts as spending when it's made (the bon itself shows separately).
+routerAdd("GET", "/api/customers/spend", (e) => {
+  const L = require(`${__hooks}/lib.js`);
+  L.requireRole(e, ["owner", "admin"]);
+  const rows = L.query(e.app, `SELECT s.customer AS id, SUM(s.total) AS total, COUNT(*) AS trx, MAX(s.created) AS last
+      FROM sales s WHERE s.status != 'batal' AND s.customer != '' GROUP BY s.customer`, {}, { id: "", total: 0, trx: 0, last: "" });
+  const bon = L.query(e.app, `SELECT customer AS id, SUM(amount - paid) AS bon FROM receivables WHERE status = 'belum' GROUP BY customer`, {}, { id: "", bon: 0 });
+  const out = {};
+  for (const r of rows) out[r.id] = { total: r.total, trx: r.trx, last: r.last, bon: 0 };
+  for (const b of bon) (out[b.id] = out[b.id] || { total: 0, trx: 0, last: "", bon: 0 }).bon = b.bon;
+  return e.json(200, out);
+}, $apis.requireAuth("users"));
+
+// GET /api/customers/{id}/summary?from=&to= — one pelanggan: spending all
+// time, this month, this year and for the chosen period; open bon; recent
+// purchases. Owner/admin.
+routerAdd("GET", "/api/customers/{id}/summary", (e) => {
+  const L = require(`${__hooks}/lib.js`);
+  L.requireRole(e, ["owner", "admin"]);
+  const id = e.request.pathValue("id");
+  let u;
+  try { u = e.app.findRecordById("users", id); } catch (_) { throw new NotFoundError("Pelanggan tidak ditemukan."); }
+  if (u.getString("role") !== "pelanggan") throw new NotFoundError("Pelanggan tidak ditemukan.");
+  const q = e.requestInfo().query;
+  const today = L.wibDate();
+  const span = (from, to) => {
+    const r = L.wibRange(from, to);
+    return L.query(e.app, `SELECT COALESCE(SUM(s.total),0) AS total, COUNT(*) AS trx,
+        COALESCE(SUM((SELECT SUM(qty) FROM sale_items WHERE sale = s.id)),0) AS items
+        FROM sales s WHERE s.customer = {:c} AND s.status != 'batal' AND s.created >= {:from} AND s.created < {:to}`,
+      { c: id, from: r.from, to: r.to }, { total: 0, trx: 0, items: 0 })[0];
+  };
+  const all = L.query(e.app, `SELECT COALESCE(SUM(s.total),0) AS total, COUNT(*) AS trx,
+      COALESCE(SUM((SELECT SUM(qty) FROM sale_items WHERE sale = s.id)),0) AS items, COALESCE(MIN(s.created),'') AS first, COALESCE(MAX(s.created),'') AS last
+      FROM sales s WHERE s.customer = {:c} AND s.status != 'batal'`, { c: id }, { total: 0, trx: 0, items: 0, first: "", last: "" })[0];
+  const bon = L.query(e.app, `SELECT rc.id, s.number, s.created, rc.amount, rc.paid, COALESCE(rc.due_date,'') AS due
+      FROM receivables rc JOIN sales s ON s.id = rc.sale WHERE rc.customer = {:c} AND rc.status = 'belum' ORDER BY s.created`,
+    { c: id }, { id: "", number: "", created: "", amount: 0, paid: 0, due: "" });
+  const recent = L.query(e.app, `SELECT s.id, s.number, s.created, s.total, s.paid, s.status, COALESCE(s.kind,'') AS kind,
+      COALESCE((SELECT SUM(qty) FROM sale_items WHERE sale = s.id),0) AS items
+      FROM sales s WHERE s.customer = {:c} ORDER BY s.created DESC LIMIT 30`,
+    { c: id }, { id: "", number: "", created: "", total: 0, paid: 0, status: "", kind: "", items: 0 });
+  return e.json(200, {
+    all,
+    month: span(today.slice(0, 8) + "01", today),
+    year: span(today.slice(0, 5) + "01-01", today),
+    period: q.from && q.to ? span(q.from, q.to) : null,
+    bon, bon_total: bon.reduce((a, b) => a + b.amount - b.paid, 0), recent,
+  });
 }, $apis.requireAuth("users"));

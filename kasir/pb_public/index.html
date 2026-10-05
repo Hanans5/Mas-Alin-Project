@@ -184,6 +184,16 @@ h3.sec{margin:18px 0 8px;font-size:15px}
 .subtabs button{border:0;background:none;padding:10px 14px;font-weight:700;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;min-height:44px}
 .subtabs button.on{color:var(--accent);border-bottom-color:var(--accent)}
 .link{border:0;background:none;padding:0;color:var(--accent);font-weight:700;text-decoration:underline;text-underline-offset:3px;min-height:0}
+.cd-grid{display:grid;gap:16px;margin-top:10px}
+@media (min-width:900px){.cd-grid{grid-template-columns:minmax(300px,380px) 1fr;align-items:start}.cd-form{position:sticky;top:72px}}
+.cd-spend{min-width:0}
+.cd-big b{color:var(--accent)}
+.payrow{margin-top:4px}
+.payrow .pick{flex-wrap:wrap}
+.paysum{margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--bg)}
+.paysum .sum.ok b{color:var(--ok)}.paysum .sum.warn b{color:var(--warn)}.paysum .sum.bad b{color:var(--bad)}
+.paysum .err{margin-top:6px}
+.bonbox{margin-top:10px;padding:10px 12px;border:1.5px solid var(--warn);border-radius:10px;background:var(--warn-soft)}
 .input.emp{margin:8px 12px 2px;width:calc(100% - 24px);font-weight:600}
 .input.emp.need{border-color:var(--warn);background:var(--warn-soft)}
 .swline{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
@@ -593,15 +603,14 @@ function setQty(id, qty) {
   cartChanged();
 }
 function resetSale() {
-  S.cart = []; S.customer = null; S.voucher = ''; S.points = 0; S.discount = 0; S.preview = null; S.previewErr = ''; S.employee = '';
+  S.cart = []; S.customer = null; S.discount = 0; S.preview = null; S.previewErr = ''; S.employee = '';
 }
 function cartChanged() { renderGrid(); renderCart(); schedulePreview(); }
 
 const localSubtotal = () => S.cart.reduce((a, l) => a + lineTotal(l), 0);
 const cartBody = () => ({
   items: S.cart.map(l => l.price != null ? { product: l.id, qty: l.qty, price: l.price } : { product: l.id, qty: l.qty }),
-  customer: S.customer?.id || '', voucher_code: S.voucher.trim(),
-  points_used: S.points || 0, discount: isManager() ? (S.discount || 0) : 0, employee: S.employee || '',
+  customer: S.customer?.id || '', discount: isManager() ? (S.discount || 0) : 0, employee: S.employee || '',
 });
 
 // Ask the server for the real totals whenever something that affects them
@@ -632,7 +641,7 @@ function renderCart() {
     <div class="cart-h">
       <button class="btn ghost sm only-mobile" id="cclose" aria-label="Tutup">←</button>
       <button class="cust" id="pickCust">${c
-        ? `<b>${esc(c.name || c.username)}</b><small>${esc(c.phone || '@' + c.username)} · ${c.points} poin</small>`
+        ? `<b>${esc(c.name || c.username)}</b><small>${esc(c.phone || '@' + c.username)}</small>`
         : `<b>Pelanggan umum</b><small>Ketuk untuk pilih / daftar member</small>`}</button>
       ${c ? `<button class="btn ghost sm" id="clrCust" aria-label="Hapus pelanggan">✕</button>` : ''}
     </div>
@@ -654,15 +663,13 @@ function renderCart() {
     }).join('') : `<div class="empty">Keranjang kosong.<br><small>Ketuk produk atau scan barcode.</small></div>`}</div>
     <div class="cart-f">
       <div class="extras">
-        <input class="input" id="vc" placeholder="Kode voucher" value="${esc(S.voucher)}" autocapitalize="characters">
-        ${c && c.points > 0 ? `<input class="input" id="pt" placeholder="Pakai poin (maks ${c.points})" inputmode="numeric" value="${S.points || ''}">` : ''}
         ${isManager() ? `<input class="input" id="dc" placeholder="Diskon manual (Rp)" inputmode="numeric" value="${S.discount || ''}">` : ''}
       </div>
       <div id="totals"></div>
       <button class="btn primary block" id="pay" ${S.cart.length ? '' : 'disabled'}>Bayar</button>
     </div>`;
   $('#pickCust').onclick = openCustomerPicker;
-  if ($('#clrCust')) $('#clrCust').onclick = () => { S.customer = null; S.points = 0; renderCart(); schedulePreview(); };
+  if ($('#clrCust')) $('#clrCust').onclick = () => { S.customer = null; renderCart(); schedulePreview(); };
   $('#cclose').onclick = () => el.classList.remove('open');
   el.querySelectorAll('[data-inc]').forEach(b => b.onclick = () => addToCart(b.dataset.inc));
   el.querySelectorAll('[data-dec]').forEach(b => b.onclick = () => { const l = S.cart.find(x => x.id === b.dataset.dec); setQty(l.id, l.qty - 1); });
@@ -672,7 +679,7 @@ function renderCart() {
   const clr = $('#cclear');
   if (clr) clr.onclick = () => { if (!confirmInline('clrmsg', 'Tekan Kosongkan lagi untuk menghapus semua barang.')) return; resetSale(); renderCart(); renderGrid(); schedulePreview(); };
   const bind = (id, key, num) => { const i = $('#' + id); if (i) i.oninput = () => { S[key] = num ? (parseInt(i.value.replace(/\D/g, ''), 10) || 0) : i.value; schedulePreview(); }; };
-  bind('vc', 'voucher'); bind('pt', 'points', true); bind('dc', 'discount', true);
+  bind('dc', 'discount', true);
   $('#pay').onclick = openPayment;
   renderTotals();
 }
@@ -684,11 +691,8 @@ function renderTotals() {
   const items = S.cart.reduce((a, l) => a + l.qty, 0);
   el.innerHTML = `
     <div class="sum"><span>Subtotal (${items} item)</span><span class="num">${rp(p ? p.subtotal : sub)}</span></div>
-    ${p && p.voucher_discount ? `<div class="sum disc"><span>Voucher</span><span class="num">−${rp(p.voucher_discount)}</span></div>` : ''}
-    ${p && p.points_discount ? `<div class="sum disc"><span>Poin (${p.points_used})</span><span class="num">−${rp(p.points_discount)}</span></div>` : ''}
-    ${p && p.discount - p.voucher_discount - p.points_discount > 0 ? `<div class="sum disc"><span>Diskon</span><span class="num">−${rp(p.discount - p.voucher_discount - p.points_discount)}</span></div>` : ''}
+    ${p && p.discount > 0 ? `<div class="sum disc"><span>Diskon</span><span class="num">−${rp(p.discount)}</span></div>` : ''}
     <div class="sum total"><span>Total</span><span class="num">${rp(p ? p.total : sub)}</span></div>
-    ${p && p.points_will_earn ? `<div class="sum muted"><span>Poin didapat (jika lunas)</span><span>+${p.points_will_earn}</span></div>` : ''}
     ${S.previewErr ? `<div class="pv-err">${esc(S.previewErr)}</div>` : ''}
     ${S.cart.length && S.employees?.length && !S.employee ? `<div class="pv-err">Pilih karyawan yang melayani dulu.</div>` : ''}`;
   const pay = $('#pay'); if (pay) pay.disabled = !S.cart.length || !!S.previewErr || (S.employees?.length > 0 && !S.employee);
@@ -717,15 +721,14 @@ function openCustomerPicker() {
     const v = $('#cq').value.trim();
     const f = v ? `role = "pelanggan" && (name ~ ${pbq(v)} || username ~ ${pbq(v)} || phone ~ ${pbq(v)})` : 'role = "pelanggan"';
     try {
-      const r = await list('users', { filter: f, sort: '-updated', perPage: 20, fields: 'id,name,username,phone,points' });
+      const r = await list('users', { filter: f, sort: '-updated', perPage: 20, fields: 'id,name,username,phone' });
       if (!$('#cres')) return;
       $('#cres').innerHTML = r.items.length ? r.items.map(u => `
         <button class="list-item" data-u="${u.id}">
           <span><b>${esc(u.name || u.username)}</b><br><small class="muted">@${esc(u.username)}${u.phone ? ' · ' + esc(u.phone) : ''}</small></span>
-          <span class="badge">${u.points} poin</span>
         </button>`).join('') : `<div class="empty">Tidak ditemukan.</div>`;
       $('#cres').querySelectorAll('[data-u]').forEach(b => b.onclick = () => {
-        S.customer = r.items.find(u => u.id === b.dataset.u); S.points = 0;
+        S.customer = r.items.find(u => u.id === b.dataset.u);
         closeModal(); renderCart(); schedulePreview();
       });
     } catch (e) { $('#cres').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
@@ -738,7 +741,7 @@ function openCustomerPicker() {
 function openNewCustomer() {
   openModal(`
     <h2>Daftar member baru</h2>
-    <div class="muted" style="font-size:14px">Pelanggan bisa login dengan username & password ini untuk melihat poin dan riwayat belanja.</div>
+    <div class="muted" style="font-size:14px">Pelanggan bisa login dengan username & password ini untuk melihat riwayat belanja dan bon.</div>
     <form id="nf">
       <label class="f">Nama</label><input class="input" id="nn" required maxlength="100">
       <label class="f">No HP / WhatsApp</label><input class="input" id="nh" inputmode="tel" maxlength="20">
@@ -759,7 +762,7 @@ function openNewCustomer() {
       const u = await api('/api/collections/users/records', { method: 'POST', body: {
         name: $('#nn').value.trim(), phone: $('#nh').value.trim(), username: $('#nu').value.trim().toLowerCase(),
         password: pw, passwordConfirm: pw, role: 'pelanggan' } });
-      S.customer = u; S.points = 0;
+      S.customer = u;
       closeModal(); renderCart(); schedulePreview();
       toast('Member terdaftar.');
     } catch (e) {
@@ -771,69 +774,112 @@ function openNewCustomer() {
 }
 
 // ── payment ─────────────────────────────────────────
+// Payment: one amount per method (Tunai, Transfer), change only from cash,
+// and a shortfall can become a bon (DP = what is paid now) on a named
+// pelanggan. Mirrors lib.js takePayments; the server has the final word.
 function openPayment() {
   const p = S.preview;
   if (!p) return toast(S.previewErr || 'Menghitung total, coba lagi.', true);
   const total = p.total;
-  let method = S.methods[0]?.id || '';
-  let credit = false;
-  // Quick cash buttons: exact, then the next round notes above the total.
+  const ms = S.methods.slice().sort((a, b) => (b.is_cash ? 1 : 0) - (a.is_cash ? 1 : 0));
+  const cashM = ms.find(m => m.is_cash);
+  const amt = Object.fromEntries(ms.map(m => [m.id, m === cashM ? total : 0]));
+  let bon = false;
   const quick = [...new Set([total, ...[10000, 20000, 50000, 100000].map(n => Math.ceil(total / n) * n)].filter(v => v >= total))].slice(0, 4);
   openModal(`
     <h2>Pembayaran</h2>
     <div class="bigtotal num">${rp(total)}</div>
-    <label class="f">Metode</label>
-    <div class="pick" id="pm">${S.methods.map(m => `<button type="button" data-m="${m.id}" class="${m.id === method ? 'on' : ''}">${esc(m.name)}</button>`).join('')}</div>
-    <label class="f" for="paid">Uang diterima</label>
-    <input class="input num" id="paid" inputmode="numeric" value="${total}" style="font-size:20px;font-weight:700">
-    <div class="pick" id="qk" style="margin-top:8px">${quick.map(v => `<button type="button" data-v="${v}">${v === total ? 'Uang pas' : rp(v)}</button>`).join('')}</div>
-    ${S.customer ? `
-      <label style="display:flex;gap:8px;align-items:center;margin-top:14px;font-weight:600"><input type="checkbox" id="cr"> Sisanya jadi piutang (${esc(S.customer.name || S.customer.username)})</label>
-      <div id="duewrap" class="hidden"><label class="f">Jatuh tempo</label><input class="input" type="date" id="due"></div>` : ''}
-    <label class="f">Catatan</label><input class="input" id="note" maxlength="300">
-    <div class="change" id="chg"></div>
+    ${ms.map(m => `<div class="payrow">
+      <label class="f" for="pa-${m.id}">${esc(m.name)}</label>
+      <div class="row"><input class="input num pay-in" id="pa-${m.id}" data-m="${m.id}" inputmode="numeric" value="${amt[m.id] || ''}" placeholder="0">
+        ${m === cashM ? '' : `<button type="button" class="btn sm" data-rest="${m.id}" style="flex:0 0 auto">Sisa ke sini</button>`}</div>
+      ${m === cashM ? `<div class="pick" style="margin-top:6px">${quick.map(v => `<button type="button" data-v="${v}">${v === total ? 'Uang pas' : rp(v)}</button>`).join('')}<button type="button" data-v="0">Kosongkan</button></div>` : ''}
+    </div>`).join('')}
+    <div class="paysum" id="psum"></div>
+    ${S.customer ? `<div id="bonbox" class="bonbox hidden">
+      <label style="display:flex;gap:8px;align-items:flex-start;font-weight:600"><input type="checkbox" id="cr" style="margin-top:3px"> <span id="bonlbl"></span></label>
+      <div id="duewrap" class="hidden"><label class="f" for="due">Jatuh tempo <small>(opsional)</small></label><input class="input" type="date" id="due" min="${wibToday()}"></div>
+    </div>
+    <button type="button" class="btn block" id="fullbon" style="margin-top:8px">Bon penuh (bayar nanti, ${esc(S.customer.name || S.customer.username)})</button>`
+    : `<div class="muted sm" id="nobon" style="margin-top:8px">Untuk DP atau bon, pilih pelanggan dulu di keranjang.</div>`}
+    <label class="f" for="note">Catatan</label><input class="input" id="note" maxlength="300">
     <div id="perr"></div>
     <div class="row" style="margin-top:14px"><button class="btn" id="pback">Kembali</button><button class="btn primary" id="pgo">Selesaikan</button></div>`);
-  const paidI = $('#paid');
-  const update = () => {
-    const v = parseInt(paidI.value.replace(/\D/g, ''), 10) || 0;
-    const ch = $('#chg'), go = $('#pgo');
-    if (v >= total) { ch.innerHTML = `Kembalian <span class="num">${rp(v - total)}</span>`; ch.style.color = 'var(--ok)'; go.disabled = false; }
-    else if (credit) { ch.innerHTML = `Piutang <span class="num">${rp(total - v)}</span>`; ch.style.color = 'var(--warn)'; go.disabled = false; }
-    else { ch.innerHTML = `Kurang <span class="num">${rp(total - v)}</span>`; ch.style.color = 'var(--bad)'; go.disabled = true; }
-    return v;
+  const read = () => {
+    let cash = 0, other = 0;
+    for (const m of ms) { const v = parseInt(($('#pa-' + m.id).value || '').replace(/\D/g, ''), 10) || 0; amt[m.id] = v; if (m.is_cash) cash += v; else other += v; }
+    return { cash, other, sum: cash + other };
   };
-  paidI.oninput = update;
-  paidI.onfocus = () => paidI.select();
-  $('#pm').querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
-    method = b.dataset.m;
-    $('#pm').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+  const update = () => {
+    const { cash, other, sum } = read();
+    const go = $('#pgo'), box = $('#psum');
+    let ok = true, html = `<div class="sum"><span>Dibayar</span><b class="num">${rp(sum)}</b></div>`;
+    if (other > total) { ok = false; html += `<div class="err">Transfer melebihi total. Kembalian hanya dari tunai.</div>`; }
+    else if (sum >= total) {
+      html += `<div class="sum ok"><span>Kembalian (tunai)</span><b class="num">${rp(sum - total)}</b></div>`;
+      if (bon) { bon = false; if ($('#cr')) $('#cr').checked = false; }
+    } else {
+      const short = total - sum;
+      if (S.customer) {
+        html += bon ? `<div class="sum warn"><span>${sum ? 'DP sekarang' : 'Dibayar sekarang'}</span><b class="num">${rp(sum)}</b></div><div class="sum warn"><span>Sisa jadi bon</span><b class="num">${rp(short)}</b></div>`
+          : `<div class="sum bad"><span>Kurang</span><b class="num">${rp(short)}</b></div>`;
+        ok = bon;
+      } else { html += `<div class="sum bad"><span>Kurang</span><b class="num">${rp(short)}</b></div>`; ok = false; }
+    }
+    box.innerHTML = html;
+    if ($('#bonbox')) {
+      $('#bonbox').classList.toggle('hidden', sum >= total || other > total);
+      $('#bonlbl').innerHTML = `Jadikan bon atas nama <b>${esc(S.customer.name || S.customer.username)}</b>: ${sum ? `DP ${rp(sum)}, ` : ''}sisa ${rp(Math.max(0, total - sum))} dibayar nanti`;
+      $('#duewrap').classList.toggle('hidden', !bon);
+    }
+    go.disabled = !ok;
+    go.textContent = sum >= total ? 'Selesaikan' : bon ? (sum ? `Simpan DP ${rp(sum)}` : 'Simpan bon') : 'Selesaikan';
+    return { cash, other, sum };
+  };
+  ms.forEach(m => { const i = $('#pa-' + m.id); i.oninput = update; i.onfocus = () => i.select(); });
+  document.querySelectorAll('#mbg [data-v]').forEach(b => b.onclick = () => { $('#pa-' + cashM.id).value = b.dataset.v === '0' ? '' : b.dataset.v; update(); });
+  document.querySelectorAll('#mbg [data-rest]').forEach(b => b.onclick = () => {
+    const rest = Math.max(0, total - ms.filter(m => m.id !== b.dataset.rest).reduce((a, m) => a + (parseInt(($('#pa-' + m.id).value || '').replace(/\D/g, ''), 10) || 0), 0));
+    $('#pa-' + b.dataset.rest).value = rest || ''; update();
   });
-  $('#qk').querySelectorAll('[data-v]').forEach(b => b.onclick = () => { paidI.value = b.dataset.v; update(); });
-  if ($('#cr')) $('#cr').onchange = () => { credit = $('#cr').checked; $('#duewrap').classList.toggle('hidden', !credit); update(); };
+  if ($('#cr')) $('#cr').onchange = () => { bon = $('#cr').checked; update(); };
+  if ($('#fullbon')) $('#fullbon').onclick = () => { ms.forEach(m => { $('#pa-' + m.id).value = ''; }); bon = true; $('#cr').checked = true; update(); };
   $('#pback').onclick = closeModal;
   $('#pgo').onclick = async () => {
-    const go = $('#pgo');
+    const go = $('#pgo'), label = go.textContent;
+    const { sum } = update();
     go.disabled = true; go.textContent = 'Menyimpan…';
     try {
       const r = await api('/api/pos/checkout', { method: 'POST', body: {
-        ...cartBody(), payment_method: method, paid: update(), credit,
-        due_date: credit && $('#due')?.value || '', note: $('#note').value.trim() } });
+        ...cartBody(), payments: ms.filter(m => amt[m.id] > 0).map(m => ({ method: m.id, amount: amt[m.id] })),
+        credit: sum < total && bon, due_date: bon && $('#due')?.value || '', note: $('#note').value.trim() } });
       resetSale();
       $('#cart')?.classList.remove('open');
-      showReceipt(r.sale, r.items, true);
+      showReceipt(r.sale, r.items, true, r.payments);
       loadCatalog().then(() => { if (S.tab === 'pos' && $('#grid')) { renderGrid(); renderCart(); } }).catch(() => {});
     } catch (e) {
       $('#perr').innerHTML = `<div class="err">${esc(e.message)}</div>`;
-      go.disabled = false; go.textContent = 'Selesaikan';
+      go.disabled = false; go.textContent = label;
     }
   };
-  update(); paidI.focus();
+  update();
+  const first = $('#pa-' + (cashM || ms[0]).id); first.focus(); first.select();
 }
 
 // ── receipt ─────────────────────────────────────────
 const TIER_NOTE = { kodian: 'kodian', kustom: 'harga khusus', retur: 'dikembalikan' };
-function receiptHtml(sale, items) {
+// Receipt payment lines: each method (cash shown as handed over, change below),
+// "DP" when the rest became a bon; older sales fall back to their one method.
+function payLines(sale, pays) {
+  const dp = sale.total > sale.paid ? 'DP ' : '';
+  if (pays && pays.length) {
+    const cash = pays.find(p => p.expand?.payment_method?.is_cash);
+    return pays.map(p => [dp + (p.expand?.payment_method?.name || 'Bayar'), p.amount + (p === cash ? sale.change : 0)]);
+  }
+  if (!sale.paid && !sale.change) return [];
+  return [[dp + (sale.expand?.payment_method?.name || 'Bayar'), sale.paid + sale.change]];
+}
+function receiptHtml(sale, items, pays) {
   const st = S.settings, x = sale.expand || {};
   const lines = s => esc(s || '').split('\n').map(l => `<div class="c">${l || '&nbsp;'}</div>`).join('');
   return `<div class="receipt">
@@ -851,43 +897,44 @@ function receiptHtml(sale, items) {
     <div class="r"><span>Subtotal</span><span>${sale.subtotal.toLocaleString('id-ID')}</span></div>
     ${sale.discount ? `<div class="r"><span>Diskon</span><span>-${sale.discount.toLocaleString('id-ID')}</span></div>` : ''}
     <div class="r"><b>TOTAL</b><b>${sale.total.toLocaleString('id-ID')}</b></div>
-    <div class="r"><span>${esc(x.payment_method?.name || 'Bayar')}</span><span>${(sale.paid + sale.change).toLocaleString('id-ID')}</span></div>
+    ${payLines(sale, pays).map(l => `<div class="r"><span>${esc(l[0])}</span><span>${l[1].toLocaleString('id-ID')}</span></div>`).join('')}
     ${sale.change ? `<div class="r"><span>Kembali</span><span>${sale.change.toLocaleString('id-ID')}</span></div>` : ''}
-    ${sale.status === 'piutang' ? `<div class="r"><b>PIUTANG</b><b>${(sale.total - sale.paid).toLocaleString('id-ID')}</b></div>` : ''}
+    ${sale.total > sale.paid ? `<div class="r"><b>${sale.status === 'piutang' ? 'SISA BON' : 'BON (sudah lunas)'}</b><b>${(sale.total - sale.paid).toLocaleString('id-ID')}</b></div>` : ''}
     ${sale.status === 'batal' ? `<div class="c"><b>*** DIBATALKAN ***</b></div>` : ''}
-    ${x.customer && sale.points_earned ? `<div>Poin didapat: +${sale.points_earned}</div>` : ''}
     <hr>
     ${lines(st.receipt_footer)}
   </div>`;
 }
-function receiptText(sale, items) {
+function receiptText(sale, items, pays) {
   const st = S.settings;
   return [`*${st.store_name}*`, sale.number, fmtTime(sale.created), sale.expand?.employee ? `Dilayani: ${sale.expand.employee.name}` : '', '',
     sale.kind === 'tukar' ? 'Tukar barang' : '',
     ...items.map(i => `${i.name}${TIER_NOTE[i.tier] ? ` (${TIER_NOTE[i.tier]})` : ''}\n  ${i.qty} x ${rp(i.price)} = ${rp(i.subtotal)}`), '',
     sale.discount ? `Diskon: -${rp(sale.discount)}` : '', `*Total: ${rp(sale.total)}*`,
-    sale.status === 'piutang' ? `Sisa piutang: ${rp(sale.total - sale.paid)}` : '',
-    sale.points_earned ? `Poin didapat: +${sale.points_earned}` : '', '', 'Terima kasih!'].filter((l, i, a) => l !== '' || a[i - 1] !== '').join('\n');
+    ...payLines(sale, pays).map(l => `${l[0]}: ${rp(l[1])}`), sale.change ? `Kembali: ${rp(sale.change)}` : '',
+    sale.total > sale.paid ? (sale.status === 'piutang' ? `*Sisa bon: ${rp(sale.total - sale.paid)}*` : `Bon ${rp(sale.total - sale.paid)} sudah lunas`) : '',
+    '', 'Terima kasih!'].filter((l, i, a) => l !== '' || a[i - 1] !== '').join('\n');
 }
 function waNumber(phone) {
   let d = String(phone || '').replace(/\D/g, '');
   if (d.startsWith('0')) d = '62' + d.slice(1);
   return d;
 }
-function showReceipt(sale, items, fresh) {
+async function showReceipt(sale, items, fresh, pays) {
   const cust = sale.expand?.customer;
+  if (!pays) { try { pays = (await list('sale_payments', { filter: `sale = ${pbq(sale.id)}`, sort: 'created', expand: 'payment_method' })).items; } catch (_) { pays = []; } }
   openModal(`
     <h2>${fresh ? '✓ Transaksi berhasil' : 'Struk'}</h2>
     ${fresh && sale.change ? `<div class="change" style="color:var(--ok)">Kembalian <span class="num">${rp(sale.change)}</span></div>` : ''}
-    ${receiptHtml(sale, items)}
+    ${receiptHtml(sale, items, pays)}
     <div class="row">
       <button class="btn" id="rprint">🖨 Cetak</button>
-      ${cust?.phone ? `<a class="btn" id="rwa" target="_blank" rel="noopener" href="https://wa.me/${waNumber(cust.phone)}?text=${encodeURIComponent(receiptText(sale, items))}">WhatsApp</a>` : ''}
+      ${cust?.phone ? `<a class="btn" id="rwa" target="_blank" rel="noopener" href="https://wa.me/${waNumber(cust.phone)}?text=${encodeURIComponent(receiptText(sale, items, pays))}">WhatsApp</a>` : ''}
     </div>
     ${role() !== 'pelanggan' && sale.status !== 'batal' && sale.kind !== 'tukar' && !fresh ? `<button class="btn block" id="rswap" style="margin-top:8px">Tukar barang</button>` : ''}
     ${isManager() && sale.status !== 'batal' && !fresh ? `<button class="btn danger block" id="rvoid" style="margin-top:8px">Batalkan transaksi</button>` : ''}
     <button class="btn primary block" id="rdone" style="margin-top:8px">${fresh ? 'Transaksi baru' : 'Tutup'}</button>`);
-  $('#rprint').onclick = () => { $('#print').innerHTML = receiptHtml(sale, items); printAs('receipt'); };
+  $('#rprint').onclick = () => { $('#print').innerHTML = receiptHtml(sale, items, pays); printAs('receipt'); };
   $('#rdone').onclick = () => { closeModal(); if (fresh) $('#q')?.focus(); };
   if ($('#rvoid')) $('#rvoid').onclick = () => openVoid(sale);
   if ($('#rswap')) $('#rswap').onclick = () => openSwap(sale.id).catch(e => toast(e.message, true));
@@ -941,7 +988,7 @@ async function viewTx() {
 function openVoid(sale) {
   openModal(`
     <h2>Batalkan ${esc(sale.number)}?</h2>
-    <div class="muted">Stok dikembalikan, poin pelanggan ditarik, piutang ditutup. Tidak bisa diurungkan.</div>
+    <div class="muted">Stok dikembalikan dan bon ditutup. Uang yang sudah diterima dikembalikan ke pembeli secara manual. Tidak bisa diurungkan.</div>
     <label class="f">Alasan</label><input class="input" id="vr" maxlength="200" placeholder="mis. salah input, barang dikembalikan">
     <div id="verr"></div>
     <div class="row" style="margin-top:16px"><button class="btn" id="vno">Jangan</button><button class="btn danger" id="vyes">Batalkan</button></div>`);
@@ -1642,7 +1689,7 @@ async function finProfitLoss(el) {
     const body = `
       <div class="muted" style="margin-bottom:8px">${fd(r.from)} – ${fd(r.to)}</div>
       ${line('Penjualan kotor', rp(r.gross_sales))}
-      ${line('Diskon (voucher, poin, manual)', '−' + rp(r.discount), 'disc')}
+      ${line('Diskon', '−' + rp(r.discount), 'disc')}
       ${line('<b>Pendapatan bersih</b>', `<b>${rp(r.revenue)}</b>`)}
       ${line('HPP (modal barang terjual)', '−' + rp(r.hpp))}
       ${line('<b>Laba kotor</b>', `<b>${rp(r.gross_profit)}</b>`, 'pl-sub')}
@@ -1759,11 +1806,115 @@ function viewReports() {
   load();
 }
 
+// ── pelanggan detail: the form on the left, spending on the right ──
+// Replaces points: Mas Alin decides bonuses from what each pelanggan spends.
+const CS = { preset: 'year' };
+async function viewCustomer(u, back) {
+  const owner = role() === 'owner';
+  const periods = [['month', 'Bulan ini'], ['year', 'Tahun ini'], ['all', 'Semua'], ['custom', 'Pilih tanggal']];
+  $('#view').innerHTML = `
+    <button class="btn ghost sm" id="cback">← Pelanggan</button>
+    <div class="cd-grid">
+      <section class="card formcard cd-form">
+        <h2 style="margin:0 0 4px">${esc(u.name || u.username)}</h2>
+        <div class="muted sm">@${esc(u.username)} · terdaftar ${fmtTime(u.created)}</div>
+        <form id="cdf">
+          <label class="f" for="cdn">Nama</label><input class="input" id="cdn" required maxlength="100" value="${esc(u.name)}" ${owner ? '' : 'disabled'}>
+          <label class="f" for="cdp">No HP / WA</label><input class="input" id="cdp" inputmode="tel" maxlength="20" value="${esc(u.phone)}" ${owner ? '' : 'disabled'}>
+          <label class="f" for="cda">Alamat</label><textarea class="input" id="cda" maxlength="300" ${owner ? '' : 'disabled'}>${esc(u.address)}</textarea>
+          ${owner ? `<label class="f" for="cdw">Password baru <small>(kosongkan jika tidak diganti)</small></label><input class="input" id="cdw" minlength="8" autocomplete="new-password">
+          <label style="display:flex;gap:8px;align-items:center;margin-top:14px;font-weight:600"><input type="checkbox" id="cdd" ${u.disabled ? 'checked' : ''}> Nonaktifkan (tidak bisa login)</label>
+          <div id="cderr"></div><button class="btn primary" style="margin-top:14px">Simpan</button>` : `<div class="muted sm" style="margin-top:10px">Hanya pemilik yang bisa mengubah data pelanggan.</div>`}
+        </form>
+      </section>
+      <section class="cd-spend">
+        <div class="chips" id="cdper" style="padding:0">${periods.map(([k, l]) => `<button class="chip ${CS.preset === k ? 'on' : ''}" data-p="${k}">${l}</button>`).join('')}</div>
+        <div class="row ${CS.preset === 'custom' ? '' : 'hidden'}" id="cdcustom" style="margin-top:8px"><input class="input" type="date" id="cdf1" value="${CS.from || presetRange('month')[0]}"><input class="input" type="date" id="cdf2" value="${CS.to || wibToday()}"></div>
+        <div id="cdbody"><div class="empty">Memuat…</div></div>
+      </section>
+    </div>`;
+  $('#cback').onclick = back;
+  if (owner) $('#cdf').onsubmit = async ev => {
+    ev.preventDefault();
+    const body = { name: $('#cdn').value.trim(), phone: $('#cdp').value.trim(), address: $('#cda').value.trim(), disabled: $('#cdd').checked };
+    if ($('#cdw').value) { body.password = $('#cdw').value; body.passwordConfirm = $('#cdw').value; }
+    try { const r = await api(`/api/collections/users/records/${u.id}`, { method: 'PATCH', body }); Object.assign(u, r); $('#cdw').value = ''; toast('Tersimpan.'); }
+    catch (e) { $('#cderr').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  };
+  const load = async () => {
+    const el = $('#cdbody');
+    let qs = '';
+    if (CS.preset === 'custom') { CS.from = $('#cdf1').value; CS.to = $('#cdf2').value; if (CS.from && CS.to) qs = `?from=${CS.from <= CS.to ? CS.from : CS.to}&to=${CS.from <= CS.to ? CS.to : CS.from}`; }
+    let r;
+    try { r = await api(`/api/customers/${u.id}/summary${qs}`); } catch (e) { el.innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
+    const pick = { month: r.month, year: r.year, all: r.all, custom: r.period || { total: 0, trx: 0, items: 0 } }[CS.preset];
+    const label = { month: 'bulan ini', year: 'tahun ini', all: 'sepanjang waktu', custom: CS.from && CS.to ? `${fd(CS.from <= CS.to ? CS.from : CS.to)} – ${fd(CS.from <= CS.to ? CS.to : CS.from)}` : 'periode ini' }[CS.preset];
+    el.innerHTML = `
+      <div class="stats" style="margin-top:12px">
+        <div class="card stat cd-big"><small>Total belanja ${esc(label)}</small><b class="num">${rp(pick.total)}</b></div>
+        <div class="card stat"><small>Transaksi</small><b class="num">${pick.trx}</b></div>
+        <div class="card stat"><small>Barang (pcs)</small><b class="num">${pick.items.toLocaleString('id-ID')}</b></div>
+        <div class="card stat"><small>Rata-rata / transaksi</small><b class="num">${rp(pick.trx ? pick.total / pick.trx : 0)}</b></div>
+      </div>
+      <div class="muted sm" style="margin:8px 0 0">Sepanjang waktu ${rp(r.all.total)} dari ${r.all.trx} transaksi${r.all.first ? ` · pertama ${fmtTime(r.all.first)} · terakhir ${fmtTime(r.all.last)}` : ''}. Transaksi batal tidak dihitung.</div>
+      <h3 class="sec">Bon belum lunas ${r.bon_total ? `<span class="badge warn">${rp(r.bon_total)}</span>` : ''}</h3>
+      <div class="card">${r.bon.length ? r.bon.map(b => `<div class="list-item"><span><b class="num">${esc(b.number)}</b><br><small class="muted">${fmtTime(b.created)}${b.due ? ' · jatuh tempo ' + fd(String(b.due).slice(0, 10)) : ''}</small></span>
+          <span class="r"><b class="num">${rp(b.amount - b.paid)}</b><br><small class="muted">dari ${rp(b.amount)}</small></span>
+          <button class="btn sm primary" data-bon="${b.id}">Bayar</button></div>`).join('') : `<div class="empty">Tidak ada bon.</div>`}</div>
+      <h3 class="sec">Riwayat belanja</h3>
+      <div class="card">${r.recent.length ? r.recent.map(s => `<button class="tx" data-s="${s.id}">
+          <span><b class="num">${esc(s.number)}</b> ${s.status === 'batal' ? '<span class="badge bad">batal</span>' : s.status === 'piutang' ? '<span class="badge warn">bon</span>' : ''}${s.kind === 'tukar' ? ' <span class="badge">tukar</span>' : ''}</span>
+          <b class="num">${rp(s.total)}</b><small class="muted">${fmtTime(s.created)}</small><small class="muted">${s.items} pcs</small></button>`).join('') : `<div class="empty">Belum pernah belanja.</div>`}</div>`;
+    el.querySelectorAll('[data-s]').forEach(b => b.onclick = async () => {
+      try {
+        const sale = await api(`/api/collections/sales/records/${b.dataset.s}?expand=customer,cashier,payment_method,ref_sale,employee`);
+        const it = await list('sale_items', { filter: `sale = ${pbq(sale.id)}`, sort: 'created' });
+        showReceipt(sale, it.items, false);
+      } catch (e) { toast(e.message, true); }
+    });
+    el.querySelectorAll('[data-bon]').forEach(b => b.onclick = () => payBon(r.bon.find(x => x.id === b.dataset.bon), load));
+  };
+  $('#cdper').querySelectorAll('[data-p]').forEach(b => b.onclick = () => {
+    CS.preset = b.dataset.p;
+    $('#cdper').querySelectorAll('[data-p]').forEach(x => x.classList.toggle('on', x === b));
+    $('#cdcustom').classList.toggle('hidden', CS.preset !== 'custom');
+    load();
+  });
+  $('#cdf1').onchange = load; $('#cdf2').onchange = load;
+  load();
+}
+// Paying a bon from the pelanggan page: same route as Keuangan → Piutang.
+async function payBon(b, done) {
+  const methods = (await list('payment_methods', { filter: 'active = true', sort: 'created' })).items;
+  const left = b.amount - b.paid;
+  let method = methods.find(m => m.is_cash)?.id || methods[0]?.id || '';
+  openModal(`<h2>Bayar bon ${esc(b.number)}</h2>
+    <div class="muted">Sisa ${rp(left)} dari ${rp(b.amount)}</div>
+    <label class="f">Metode</label><div class="pick" id="bm">${methods.map(m => `<button type="button" data-m="${m.id}" class="${m.id === method ? 'on' : ''}">${esc(m.name)}</button>`).join('')}</div>
+    <label class="f" for="ba">Jumlah</label><input class="input num" id="ba" inputmode="numeric" value="${left}">
+    <div class="pick" style="margin-top:6px"><button type="button" id="bfull">Lunasi ${rp(left)}</button></div>
+    <label class="f" for="bn">Catatan</label><input class="input" id="bn" maxlength="300">
+    <div id="berr"></div>
+    <div class="row" style="margin-top:14px"><button type="button" class="btn" id="bno">Batal</button><button type="button" class="btn primary" id="bok">Simpan pembayaran</button></div>`);
+  $('#bm').querySelectorAll('[data-m]').forEach(x => x.onclick = () => { method = x.dataset.m; $('#bm').querySelectorAll('button').forEach(y => y.classList.toggle('on', y === x)); });
+  $('#bfull').onclick = () => { $('#ba').value = left; };
+  $('#bno').onclick = closeModal;
+  $('#bok').onclick = async () => {
+    const amount = parseInt($('#ba').value.replace(/\D/g, ''), 10) || 0;
+    if (amount < 1 || amount > left) { $('#berr').innerHTML = `<div class="err">Jumlah antara Rp 1 dan ${rp(left)}.</div>`; return; }
+    $('#bok').disabled = true;
+    try {
+      const r = await api('/api/receivables/pay', { method: 'POST', body: { receivable: b.id, amount, payment_method: method, note: $('#bn').value.trim() } });
+      closeModal(); toast(r.left ? `Tersimpan. Sisa bon ${rp(r.left)}.` : 'Bon lunas.'); done();
+    } catch (e) { $('#berr').innerHTML = `<div class="err">${esc(e.message)}</div>`; $('#bok').disabled = false; }
+  };
+}
+
 // ── pengguna ────────────────────────────────────────
 // Owner manages everyone. Admin sees pelanggan + kasir and registers pelanggan.
 // Key order is the order of the role menu and the role picker.
 const ROLE_LABEL = { kasir: 'Kasir', admin: 'Admin', owner: 'Owner', pelanggan: 'Pelanggan' };
-const US = { role: 'kasir', q: '' };
+const US = { role: 'kasir', q: '', psort: 'belanja' };
 async function viewUsers() {
   const owner = role() === 'owner';
   // Pick a role first, then see that role's people (admin sees kasir + pelanggan only).
@@ -1777,19 +1928,21 @@ async function viewUsers() {
       <input class="input" id="uq" placeholder="Cari nama / username / HP" value="${esc(US.q)}">
       <button class="btn primary" id="unew"></button>
     </div>
+    <div class="chips hidden" id="psort" style="margin:-4px 0 10px"><span class="muted sm" style="align-self:center">Urutkan:</span><button class="chip" data-ps="belanja">Belanja terbanyak</button><button class="chip" data-ps="nama">Nama</button></div>
     <div id="uhint"></div>
     <div class="card"><table class="tbl" id="utbl"><thead></thead><tbody><tr><td colspan="5" class="empty">Memuat…</td></tr></tbody></table></div>`;
-  let all = [], emps = [];
+  let all = [], emps = [], spend = {};
   const match = (u, q) => !q || [u.name, u.username, u.phone].some(v => (v || '').toLowerCase().includes(q));
   const tabs = () => subTabs($('#utabs'), tabKeys.map(k => [k, k === 'karyawan' ? `Karyawan <span class="cnt">${emps.filter(x => x.active).length}</span>` : `${ROLE_LABEL[k]} <span class="cnt">${all.filter(u => u.role === k).length}</span>`]), US, 'role', draw);
   const draw = () => {
     const q = US.q.trim().toLowerCase(), pel = US.role === 'pelanggan';
     if (US.role === 'karyawan') return drawEmp(q);
     $('#unew').textContent = '+ ' + (owner ? ROLE_LABEL[US.role] : 'Pelanggan');
-    $('#utbl thead').innerHTML = `<tr><th>Nama</th><th>No HP</th>${pel ? '<th class="r">Poin</th>' : ''}<th>Status</th><th></th></tr>`;
+    $('#utbl thead').innerHTML = `<tr><th>Nama</th><th>No HP</th>${pel ? '<th class="r">Total belanja</th><th class="r">Bon</th>' : ''}<th>Status</th><th></th></tr>`;
     // active people first, then by name
+    const sp = u => spend[u.id] || { total: 0, trx: 0, bon: 0 };
     const rows = all.filter(u => u.role === US.role && match(u, q))
-      .sort((x, y) => (x.disabled ? 1 : 0) - (y.disabled ? 1 : 0) || (x.name || x.username).localeCompare(y.name || y.username, 'id'));
+      .sort((x, y) => (x.disabled ? 1 : 0) - (y.disabled ? 1 : 0) || (pel && US.psort === 'belanja' ? sp(y).total - sp(x).total : 0) || (x.name || x.username).localeCompare(y.name || y.username, 'id'));
     // A search that only hits other roles says where the hits are.
     const elsewhere = q && !rows.length ? roles.filter(k => k !== US.role && all.some(u => u.role === k && match(u, q))) : [];
     $('#uhint').innerHTML = elsewhere.length ? `<p class="muted" style="margin:0 0 10px">Ditemukan di ${elsewhere.map(k => `<button class="link" data-goto="${k}">${ROLE_LABEL[k]}</button>`).join(', ')}.</p>` : '';
@@ -1797,11 +1950,14 @@ async function viewUsers() {
     $('#utbl tbody').innerHTML = rows.length ? rows.map(u => `<tr class="${u.disabled ? 'off' : ''}">
       <td data-l="Nama"><b>${esc(u.name || u.username)}</b><div class="muted sm">@${esc(u.username)}</div></td>
       <td data-l="No HP">${esc(u.phone) || '<span class="muted">—</span>'}</td>
-      ${pel ? `<td data-l="Poin" class="r num">${u.points}</td>` : ''}
+      ${pel ? `<td data-l="Total belanja" class="r num"><b>${rp(sp(u).total)}</b><div class="muted sm">${sp(u).trx}× belanja</div></td><td data-l="Bon" class="r num">${sp(u).bon ? `<span class="badge warn">${rp(sp(u).bon)}</span>` : '<span class="muted">—</span>'}</td>` : ''}
       <td data-l="Status">${u.disabled ? '<span class="badge bad">nonaktif</span>' : '<span class="badge ok">aktif</span>'}</td>
-      <td class="r">${owner ? `<button class="btn sm" data-u="${u.id}">Ubah</button>` : ''}</td></tr>`).join('')
+      <td class="r">${pel ? `<button class="btn sm" data-c="${u.id}">Buka</button>` : owner ? `<button class="btn sm" data-u="${u.id}">Ubah</button>` : ''}</td></tr>`).join('')
       : `<tr><td colspan="5" class="empty">${q ? 'Tidak ada yang cocok.' : `Belum ada ${ROLE_LABEL[US.role].toLowerCase()}.`}</td></tr>`;
     $('#utbl').querySelectorAll('[data-u]').forEach(b => b.onclick = () => editUser(all.find(u => u.id === b.dataset.u)));
+    $('#utbl').querySelectorAll('[data-c]').forEach(b => b.onclick = () => viewCustomer(all.find(u => u.id === b.dataset.c), viewUsers));
+    $('#psort').classList.toggle('hidden', !pel);
+    $('#psort').querySelectorAll('[data-ps]').forEach(b => { b.classList.toggle('on', b.dataset.ps === US.psort); b.onclick = () => { US.psort = b.dataset.ps; draw(); }; });
   };
   const drawEmp = q => {
     $('#unew').textContent = '+ Karyawan';
@@ -1839,7 +1995,7 @@ async function viewUsers() {
     };
   };
   const load = async () => {
-    try { [all, emps] = await Promise.all([list('users', { sort: 'name' }).then(r => r.items), list('employees', { sort: 'name' }).then(r => r.items)]); tabs(); draw(); }
+    try { [all, emps, spend] = await Promise.all([list('users', { sort: 'name' }).then(r => r.items), list('employees', { sort: 'name' }).then(r => r.items), api('/api/customers/spend').catch(() => ({}))]); tabs(); draw(); }
     catch (e) { $('#utbl tbody').innerHTML = `<tr><td colspan="5"><div class="err">${esc(e.message)}</div></td></tr>`; }
   };
   const editUser = u => {
@@ -1852,22 +2008,19 @@ async function viewUsers() {
         <div class="row"><div><label class="f">Username</label><input class="input" id="gu" required pattern="[a-z0-9_.]{3,32}" title="3–32 huruf kecil, angka, titik atau _" autocapitalize="none" value="${esc(u.username)}"></div>
         <div><label class="f">Peran</label><select class="input" id="gr" ${!owner || self ? 'disabled' : ''}>${Object.entries(ROLE_LABEL).filter(([k]) => owner || k === 'pelanggan').map(([k, l]) => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
         <div class="row"><div><label class="f">No HP / WA</label><input class="input" id="gp" inputmode="tel" maxlength="20" value="${esc(u.phone)}"></div>
-        <div id="gptw"><label class="f">Poin</label><input class="input num" id="gpt" inputmode="numeric" value="${u.points || 0}" ${owner ? '' : 'disabled'}></div></div>
+        <div></div></div>
         <label class="f">Alamat</label><input class="input" id="ga" maxlength="300" value="${esc(u.address)}">
         <label class="f">${isNew ? 'Password (min. 8)' : 'Password baru (kosongkan jika tidak diganti)'}</label><input class="input" id="gw" ${isNew ? 'required' : ''} minlength="8" autocomplete="new-password">
         ${!isNew && owner && !self ? `<label style="display:flex;gap:8px;align-items:center;margin-top:14px;font-weight:600"><input type="checkbox" id="gd" ${u.disabled ? 'checked' : ''}> Nonaktifkan (tidak bisa login)</label>` : ''}
         <div id="gerr"></div>
         <div class="row" style="margin-top:16px"><button type="button" class="btn" id="gno">Batal</button><button class="btn primary" id="gok">Simpan</button></div>
       </form>`);
-    const togglePts = () => $('#gptw').style.visibility = $('#gr').value === 'pelanggan' ? '' : 'hidden';
-    $('#gr').onchange = togglePts; togglePts();
     $('#gno').onclick = closeModal;
     $('#gf').onsubmit = async ev => {
       ev.preventDefault();
       const body = { name: $('#gn').value.trim(), username: $('#gu').value.trim().toLowerCase(), phone: $('#gp').value.trim(), address: $('#ga').value.trim() };
       if (owner && !self) body.role = $('#gr').value;
       if (isNew && !owner) body.role = 'pelanggan';
-      if (owner && $('#gr').value === 'pelanggan') body.points = parseInt($('#gpt').value.replace(/\D/g, ''), 10) || 0;
       if ($('#gd')) body.disabled = $('#gd').checked;
       if ($('#gw').value) { body.password = $('#gw').value; body.passwordConfirm = $('#gw').value; }
       $('#gok').disabled = true;
@@ -1896,7 +2049,8 @@ function openNewCustomerStandalone(after) {
 // ── pengaturan ──────────────────────────────────────
 const GS = { sub: '' };
 function viewSettings() {
-  const tabs = (role() === 'owner' ? [['store', 'Toko & Struk'], ['online', 'Toko Online'], ['pay', 'Metode Bayar'], ['points', 'Poin Member']] : []).concat([['voucher', 'Voucher'], ['look', 'Tampilan']]);
+  // Points, vouchers and extra payment methods were retired (2026-10-06): Tunai and Transfer only.
+  const tabs = (role() === 'owner' ? [['store', 'Toko & Struk'], ['online', 'Toko Online']] : []).concat([['look', 'Tampilan']]);
   if (!tabs.some(t => t[0] === GS.sub)) GS.sub = tabs[0][0];
   $('#view').innerHTML = `<div id="gsub"></div><div id="gbody"></div>`;
   const draw = () => ({ store: setStore, online: setOnline, pay: setMethods, points: setPoints, voucher: setVouchers, look: setTheme })[GS.sub]($('#gbody'));
@@ -1931,15 +2085,11 @@ function setStore(el) {
 // Payment details and contact shown on the public shop's checkout and order pages.
 function setOnline(el) {
   const s = S.settings;
-  const qris = s.qris ? `/api/files/settings/${s.id}/${s.qris}` : '';
   el.innerHTML = `<form id="of" class="card formcard">
     <div class="note" style="background:var(--warn-soft);color:var(--warn);padding:10px 12px;border-radius:10px">Selama nama pemilik rekening berisi kata "contoh", toko online menampilkan peringatan "jangan transfer".</div>
     <div class="row"><div><label class="f">Bank</label><input class="input" id="o1" maxlength="60" value="${esc(s.bank_name)}" placeholder="mis. BCA"></div>
     <div><label class="f">Nomor rekening</label><input class="input num" id="o2" maxlength="40" value="${esc(s.bank_account)}"></div></div>
     <label class="f">Nama pemilik rekening</label><input class="input" id="o3" maxlength="100" value="${esc(s.bank_holder)}">
-    <label class="f">Gambar QRIS</label>
-    ${qris ? `<img src="${qris}" alt="QRIS" style="max-width:180px;border-radius:8px;margin-bottom:6px">` : '<div class="muted sm">Belum ada. Pembeli yang memilih QRIS diminta transfer atau minta QRIS lewat WhatsApp.</div>'}
-    <input class="input" type="file" id="o4" accept="image/png,image/jpeg,image/webp" style="padding:8px">
     <div class="row"><div><label class="f">WhatsApp toko (untuk konfirmasi)</label><input class="input" id="o5" maxlength="20" value="${esc(s.wa_number)}"></div>
     <div><label class="f">Jam buka</label><input class="input" id="o6" maxlength="60" value="${esc(s.open_hours)}" placeholder="08.00–21.00 WIB"></div></div>
     <label class="f">Email toko <span class="muted">(opsional)</span></label><input class="input" id="o7" type="email" maxlength="120" value="${esc(s.email)}">
@@ -1957,8 +2107,6 @@ function setOnline(el) {
       await saveSettings({ bank_name: $('#o1').value.trim(), bank_account: $('#o2').value.trim(), bank_holder: $('#o3').value.trim(),
         wa_number: $('#o5').value.trim(), open_hours: $('#o6').value.trim(), email: $('#o7').value.trim(), clarity_id: $('#o8').value.trim().toLowerCase(),
         store_url: $('#o9').value.trim().replace(/\/+$/, ''), pos_url: $('#o10').value.trim().replace(/\/+$/, '') });
-      const f = $('#o4').files[0];
-      if (f) S.settings = await upload(`/api/collections/settings/records/${S.settings.id}`, { qris: f });
       toast('Disimpan.'); setOnline(el);
     } catch (e) { $('#oerr').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
   };
@@ -2197,7 +2345,7 @@ function openWebOrder(o, reload) {
   on('wcopy', async () => { await copyText(addrText, 'Alamat disalin.'); $('#wcopy').disabled = false; });
   on('wfeeok', () => act('shipping', { fee: parseInt($('#wfee').value.replace(/\D/g, ''), 10) || 0 }));
   on('wconf', async () => {
-    if (!confirmInline('werr', `Pastikan ${rp(o.total)} sudah masuk ke rekening/QRIS. Tekan lagi untuk konfirmasi.`)) { $('#wconf').disabled = false; return; }
+    if (!confirmInline('werr', `Pastikan ${rp(o.total)} sudah masuk ke rekening. Tekan lagi untuk konfirmasi.`)) { $('#wconf').disabled = false; return; }
     await act('confirm');
   });
   on('wrej', async () => {
@@ -2325,15 +2473,15 @@ async function viewMe() {
   try {
     const [me, sales, debts] = await Promise.all([
       api(`/api/collections/users/records/${S.user.id}`),
-      list('sales', { sort: '-created', perPage: 50 }),
+      list('sales', { sort: '-created', perPage: 500 }),
       list('receivables', { filter: 'status = "belum"', sort: 'due_date' }),
     ]);
     const owed = debts.items.reduce((a, d) => a + d.amount - d.paid, 0);
     $('#view').innerHTML = `
       <div class="stats">
-        <div class="card stat"><small>Poin kamu</small><b class="num">${me.points}</b></div>
-        <div class="card stat"><small>Total belanja</small><b class="num">${sales.items.filter(s => s.status !== 'batal').length}×</b></div>
-        ${owed ? `<div class="card stat"><small>Sisa piutang</small><b class="num" style="color:var(--warn)">${rp(owed)}</b></div>` : ''}
+        <div class="card stat"><small>Total belanja</small><b class="num">${rp(sales.items.filter(s => s.status !== 'batal').reduce((a, s) => a + s.total, 0))}</b></div>
+        <div class="card stat"><small>Transaksi</small><b class="num">${sales.items.filter(s => s.status !== 'batal').length}×</b></div>
+        ${owed ? `<div class="card stat"><small>Sisa bon</small><b class="num" style="color:var(--warn)">${rp(owed)}</b></div>` : ''}
       </div>
       <h3 class="sec">Riwayat belanja</h3>
       <div class="card">${sales.items.length ? sales.items.map(s => `
@@ -2341,7 +2489,7 @@ async function viewMe() {
           <span><b class="num">${esc(s.number)}</b> ${s.status !== 'lunas' ? `<span class="badge ${s.status === 'batal' ? 'bad' : 'warn'}">${s.status}</span>` : ''}</span>
           <b class="num">${rp(s.total)}</b>
           <small class="muted">${fmtTime(s.created)}</small>
-          <small class="muted">${s.points_earned && s.status !== 'batal' ? '+' + s.points_earned + ' poin' : ''}</small>
+          <small class="muted">${s.status === 'piutang' ? 'bon' : ''}</small>
         </button>`).join('') : `<div class="empty">Belum ada belanja.</div>`}</div>`;
     document.querySelectorAll('[data-s]').forEach(b => b.onclick = async () => {
       const sale = sales.items.find(s => s.id === b.dataset.s);

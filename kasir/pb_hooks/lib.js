@@ -178,13 +178,10 @@ function priceCart(tx, e, b) {
     if (customer.getString("role") !== "pelanggan") throw new BadRequestError("Pelanggan tidak valid.");
   }
 
-  let discount = 0, voucher = null, vDisc = 0, pDisc = 0;
-  if (b.voucher_code) {
-    const v = voucherDiscount(tx, b.voucher_code, subtotal, customer ? customer.id : "");
-    voucher = v.voucher;
-    vDisc = v.discount;
-    discount += vDisc;
-  }
+  // Points and vouchers were retired (Mas Alin, 2026-10-06): voucher_code and
+  // points_used are no longer read. Only the owner/admin manual discount stays.
+  let discount = 0;
+  const voucher = null, vDisc = 0, pDisc = 0;
   if (b.discount) {
     if (role(e) === "kasir") throw new ForbiddenError("Kasir tidak bisa memberi diskon manual.");
     const d = int(b.discount, "Diskon");
@@ -193,14 +190,7 @@ function priceCart(tx, e, b) {
   }
 
   const s = settings(tx);
-  let pointsUsed = 0;
-  if (b.points_used) {
-    if (!customer) throw new BadRequestError("Pilih pelanggan untuk memakai poin.");
-    pointsUsed = int(b.points_used, "Poin");
-    if (pointsUsed < 0 || pointsUsed > customer.getInt("points")) throw new BadRequestError(`Poin tidak cukup (punya ${customer.getInt("points")}).`);
-    pDisc = pointsUsed * s.getInt("point_value");
-    discount += pDisc;
-  }
+  const pointsUsed = 0;
   discount = Math.min(discount, subtotal);
   const total = subtotal - discount;
   return { lines, subtotal, discount, total, customer, voucher, pointsUsed, settings: s, voucherDiscount: vDisc, pointsDiscount: pDisc };
@@ -248,4 +238,39 @@ function pickEmployee(tx, id) {
   return emp.id;
 }
 
-module.exports = { pickEmployee, returnable, findSale, idr, priceCart, splitPrice, KODI, wibDate, wibRange, role, requireRole, int, moveStock, nextSaleNumber, voucherDiscount, settings, query };
+// ── payments at the till ──
+// Turns the request into the money actually kept, per method:
+//   payments: [{ method, amount }] (several methods allowed; same method merged)
+//   legacy:   { payment_method, paid } = one payment
+// Rules: only active methods; non-cash (transfer) can't exceed the total;
+// change only comes out of cash. If the money is short, the rest becomes a
+// bon/DP only with credit=true and a named customer (checked by the caller).
+// Returns { rows:[{pm, amount}], handed, kept, change, short }.
+function takePayments(tx, b, total) {
+  const raw = Array.isArray(b.payments) ? b.payments : (b.payment_method ? [{ method: b.payment_method, amount: b.paid }] : []);
+  const by = {};
+  for (const r of raw) {
+    const amount = int(r.amount || 0, "Jumlah bayar");
+    if (amount < 0) throw new BadRequestError("Jumlah bayar tidak boleh minus.");
+    if (!amount) continue;
+    let pm;
+    try { pm = tx.findRecordById("payment_methods", r.method); } catch (_) { throw new BadRequestError("Pilih metode pembayaran."); }
+    if (!pm.getBool("active")) throw new BadRequestError(`Metode ${pm.getString("name")} tidak dipakai lagi. Pilih Tunai atau Transfer.`);
+    (by[pm.id] = by[pm.id] || { pm, amount: 0 }).amount += amount;
+  }
+  const rows = Object.values(by);
+  let cash = 0, nonCash = 0;
+  for (const r of rows) { if (r.pm.getBool("is_cash")) cash += r.amount; else nonCash += r.amount; }
+  if (nonCash > total) throw new BadRequestError(`Transfer (Rp ${idr(nonCash)}) melebihi total Rp ${idr(total)}. Kembalian hanya dari uang tunai.`);
+  const handed = cash + nonCash;
+  const change = Math.max(0, handed - total);
+  // Change leaves the drawer: the cash rows keep only what stays.
+  let toTake = change;
+  for (const r of rows) {
+    if (toTake && r.pm.getBool("is_cash")) { const t = Math.min(toTake, r.amount); r.amount -= t; toTake -= t; }
+  }
+  const kept = rows.filter((r) => r.amount > 0);
+  return { rows: kept, handed, kept: handed - change, change, short: Math.max(0, total - handed) };
+}
+
+module.exports = { takePayments, pickEmployee, returnable, findSale, idr, priceCart, splitPrice, KODI, wibDate, wibRange, role, requireRole, int, moveStock, nextSaleNumber, voucherDiscount, settings, query };

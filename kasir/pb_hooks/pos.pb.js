@@ -5,14 +5,12 @@
 //   items: [{ product, qty, price? }] prices come from the database; kodian per
 //                                    20 pcs; `price` = custom unit price, owner only
 //   customer?: user id (role pelanggan)
-//   voucher_code?: string
 //   discount?: rupiah                manual discount — owner/admin only
-//   points_used?: int                redeem the customer's points
-//   payment_method: id
+//   payments: [{ method, amount }]   Tunai and/or Transfer; change only from cash
+//   (legacy: payment_method + paid = one payment)
 //   employee: id                     karyawan who served (required once any is active)
-//   paid: rupiah                     what was handed over now
-//   credit?: bool                    true = the unpaid rest becomes piutang
-//   due_date?: "YYYY-MM-DD"          for piutang
+//   credit?: bool                    true = the unpaid rest is a bon (DP = what was paid)
+//   due_date?: "YYYY-MM-DD"          for the bon
 //   note?: string
 // }
 routerAdd("POST", "/api/pos/checkout", (e) => {
@@ -21,38 +19,38 @@ routerAdd("POST", "/api/pos/checkout", (e) => {
   const b = e.requestInfo().body || {};
   let saleId = "";
   e.app.runInTransaction((tx) => {
-    const { lines, subtotal, discount, total, customer, voucher, pointsUsed, settings: s } = L.priceCart(tx, e, b);
-
-    let pm;
-    try { pm = tx.findRecordById("payment_methods", b.payment_method); } catch (_) { throw new BadRequestError("Pilih metode pembayaran."); }
-    if (!pm.getBool("active")) throw new BadRequestError("Metode pembayaran tidak aktif.");
+    const { lines, subtotal, discount, total, customer } = L.priceCart(tx, e, b);
     const employee = L.pickEmployee(tx, b.employee);
 
-    const handed = L.int(b.paid || 0, "Bayar");
-    if (handed < 0) throw new BadRequestError("Bayar tidak boleh minus.");
-    let paid, change, status;
-    if (handed >= total) {
-      paid = total; change = handed - total; status = "lunas";
-    } else {
-      if (!b.credit) throw new BadRequestError(`Uang kurang Rp ${L.idr(total - handed)}.`);
-      if (!customer) throw new BadRequestError("Piutang harus atas nama pelanggan.");
-      paid = handed; change = 0; status = "piutang";
+    // Money in: one or more payments (Tunai + Transfer); change only from cash.
+    // Short = bon/DP, only when asked for (credit) and on a named customer.
+    const pay = L.takePayments(tx, b, total);
+    if (!pay.rows.length && !b.credit && total > 0) throw new BadRequestError("Isi jumlah bayar, atau jadikan bon.");
+    let status = "lunas";
+    if (pay.short) {
+      if (!b.credit) throw new BadRequestError(`Uang kurang Rp ${L.idr(pay.short)}.`);
+      if (!customer) throw new BadRequestError("Bon/DP harus atas nama pelanggan.");
+      status = "piutang";
     }
-
-    // Points are earned on what was actually paid at the till; a debt earns
-    // its points when it's paid off (see /api/receivables/pay in stock.pb.js).
-    const per = s.getInt("points_per_rupiah");
-    const earned = customer && per > 0 ? Math.floor(paid / per) : 0;
+    if (b.due_date && !/^\d{4}-\d{2}-\d{2}$/.test(String(b.due_date))) throw new BadRequestError("Tanggal jatuh tempo tidak valid.");
+    const main = pay.rows.slice().sort((x, y) => y.amount - x.amount)[0];
 
     const sale = new Record(tx.findCollectionByNameOrId("sales"));
     sale.load({
       number: L.nextSaleNumber(tx), cashier: e.auth.id, customer: customer ? customer.id : "",
-      subtotal, discount, voucher: voucher ? voucher.id : "", points_used: pointsUsed,
-      total, paid, change, payment_method: pm.id, status, points_earned: earned, kind: "jual", employee,
+      subtotal, discount, voucher: "", points_used: 0,
+      total, paid: pay.kept, change: pay.change, payment_method: main ? main.pm.id : "", status, points_earned: 0, kind: "jual", employee,
       note: String(b.note || "").slice(0, 300),
     });
     tx.save(sale);
     saleId = sale.id;
+
+    const payCol = tx.findCollectionByNameOrId("sale_payments");
+    for (const r of pay.rows) {
+      const sp = new Record(payCol);
+      sp.load({ sale: sale.id, payment_method: r.pm.id, amount: r.amount, by: e.auth.id });
+      tx.save(sp);
+    }
 
     const itemsCol = tx.findCollectionByNameOrId("sale_items");
     for (const l of lines) {
@@ -62,17 +60,9 @@ routerAdd("POST", "/api/pos/checkout", (e) => {
       L.moveStock(tx, { product: l.p, type: "penjualan", qty: -l.qty, ref: sale.getString("number"), by: e.auth.id });
     }
 
-    if (voucher) {
-      voucher.set("used", voucher.getInt("used") + 1);
-      tx.save(voucher);
-    }
-    if (customer && (earned || pointsUsed)) {
-      customer.set("points", customer.getInt("points") - pointsUsed + earned);
-      tx.save(customer);
-    }
     if (status === "piutang") {
       const rc = new Record(tx.findCollectionByNameOrId("receivables"));
-      rc.load({ sale: sale.id, customer: customer.id, amount: total - paid, paid: 0, status: "belum", due_date: b.due_date ? b.due_date + " 00:00:00.000Z" : "" });
+      rc.load({ sale: sale.id, customer: customer.id, amount: total - pay.kept, paid: 0, status: "belum", due_date: b.due_date ? b.due_date + " 00:00:00.000Z" : "" });
       tx.save(rc);
     }
   });
@@ -80,7 +70,9 @@ routerAdd("POST", "/api/pos/checkout", (e) => {
   const sale = e.app.findRecordById("sales", saleId);
   e.app.expandRecord(sale, ["payment_method", "customer", "cashier", "employee"], null);
   const items2 = e.app.findRecordsByFilter("sale_items", "sale = {:s}", "created", 0, 0, { s: saleId });
-  return e.json(200, { sale, items: items2 });
+  const pays2 = e.app.findRecordsByFilter("sale_payments", "sale = {:s}", "created", 0, 0, { s: saleId });
+  e.app.expandRecords(pays2, ["payment_method"], null);
+  return e.json(200, { sale, items: items2, payments: pays2 });
 }, $apis.requireAuth("users"));
 
 // POST /api/pos/preview — same body as checkout, nothing saved. Returns the
@@ -95,8 +87,6 @@ routerAdd("POST", "/api/pos/preview", (e) => {
     lines: c.lines.map((l) => ({ product: l.p.id, qty: l.qty, price: l.price, tier: l.tier, subtotal: l.subtotal })),
     subtotal: c.subtotal, discount: c.discount, total: c.total, points_used: c.pointsUsed,
     voucher_discount: c.voucherDiscount, points_discount: c.pointsDiscount,
-    customer_points: c.customer ? c.customer.getInt("points") : 0,
-    points_will_earn: c.customer && c.settings.getInt("points_per_rupiah") > 0 ? Math.floor(c.total / c.settings.getInt("points_per_rupiah")) : 0,
   });
 }, $apis.requireAuth("users"));
 
@@ -200,22 +190,26 @@ routerAdd("POST", "/api/pos/swap", (e) => {
     const diff = cart.subtotal - backValue;
     if (diff < 0) throw new BadRequestError(`Barang baru (Rp ${L.idr(cart.subtotal)}) lebih murah dari barang yang dikembalikan (Rp ${L.idr(backValue)}). Tukar hanya untuk barang senilai atau lebih mahal; tambah barang atau pilih yang lain.`);
 
-    let pm = null, handed = 0;
-    if (diff > 0) {
-      try { pm = tx.findRecordById("payment_methods", b.payment_method); } catch (_) { throw new BadRequestError("Pilih metode pembayaran untuk selisih."); }
-      handed = L.int(b.paid || 0, "Bayar");
-      if (handed < diff) throw new BadRequestError(`Uang kurang Rp ${L.idr(diff - handed)}.`);
-    }
+    // The difference is paid in full (no bon on a swap), same rules as checkout.
+    const pay = diff > 0 ? L.takePayments(tx, b, diff) : { rows: [], kept: 0, change: 0, short: 0 };
+    if (diff > 0 && !pay.rows.length) throw new BadRequestError("Pilih metode pembayaran untuk selisih.");
+    if (pay.short) throw new BadRequestError(`Uang kurang Rp ${L.idr(pay.short)}.`);
+    const main = pay.rows.slice().sort((x, y) => y.amount - x.amount)[0];
 
     const sale = new Record(tx.findCollectionByNameOrId("sales"));
     sale.load({
       number: L.nextSaleNumber(tx), cashier: e.auth.id, customer: orig.getString("customer"),
-      subtotal: diff, discount: 0, points_used: 0, total: diff, paid: diff, change: diff ? handed - diff : 0,
-      payment_method: pm ? pm.id : "", status: "lunas", points_earned: 0, kind: "tukar", ref_sale: orig.id, employee,
+      subtotal: diff, discount: 0, points_used: 0, total: diff, paid: pay.kept, change: pay.change,
+      payment_method: main ? main.pm.id : "", status: "lunas", points_earned: 0, kind: "tukar", ref_sale: orig.id, employee,
       note: (`Tukar dari ${orig.getString("number")}` + (b.note ? " | " + String(b.note) : "")).slice(0, 300),
     });
     tx.save(sale);
     saleId = sale.id;
+    for (const r of pay.rows) {
+      const sp = new Record(tx.findCollectionByNameOrId("sale_payments"));
+      sp.load({ sale: sale.id, payment_method: r.pm.id, amount: r.amount, by: e.auth.id });
+      tx.save(sp);
+    }
     const ic = tx.findCollectionByNameOrId("sale_items");
     const number = sale.getString("number");
     for (const r of back) {

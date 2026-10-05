@@ -63,7 +63,9 @@ const hist = (await api(null, "GET", `/api/store/orders/${number}?t=${token}`)).
 check("history has 6 steps", Array.isArray(hist) && hist.length === 6, hist);
 
 // customer cancels an unpaid pickup order → stock back
-const m2 = (await api(null, "POST", "/api/store/orders", { ...base, delivery: "ambil", payment: "qris", items: [{ product: p.id, qty: 1 }] })).body;
+const qrisOrder = await api(null, "POST", "/api/store/orders", { ...base, delivery: "ambil", payment: "qris", items: [{ product: p.id, qty: 1 }] });
+check("QRIS order refused (transfer only)", qrisOrder.status === 400, qrisOrder.body);
+const m2 = (await api(null, "POST", "/api/store/orders", { ...base, delivery: "ambil", payment: "transfer", items: [{ product: p.id, qty: 1 }] })).body;
 const v2 = (await api(null, "GET", `/api/store/orders/${m2.number}?t=${m2.token}`)).body;
 check("pickup order has no shipping", v2.shipping === 0 && v2.delivery === "ambil", v2);
 const c2 = await api(null, "POST", `/api/store/orders/${m2.number}/cancel?t=${m2.token}`);

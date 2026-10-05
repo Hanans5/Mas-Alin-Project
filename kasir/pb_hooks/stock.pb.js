@@ -39,6 +39,7 @@ routerAdd("POST", "/api/receivables/pay", (e) => {
     if (amount > left) throw new BadRequestError(`Sisa piutang hanya Rp ${L.idr(left)}.`);
     let pm;
     try { pm = tx.findRecordById("payment_methods", b.payment_method); } catch (_) { throw new BadRequestError("Pilih metode pembayaran."); }
+    if (!pm.getBool("active")) throw new BadRequestError(`Metode ${pm.getString("name")} tidak dipakai lagi. Pilih Tunai atau Transfer.`);
 
     const pay = new Record(tx.findCollectionByNameOrId("receivable_payments"));
     pay.load({ receivable: rc.id, amount, payment_method: pm.id, by: e.auth.id, note: String(b.note || "").slice(0, 300) });
@@ -48,22 +49,13 @@ routerAdd("POST", "/api/receivables/pay", (e) => {
     if (rc.getInt("paid") >= rc.getInt("amount")) rc.set("status", "lunas");
     tx.save(rc);
 
-    // Points on the paid-off part, recorded on the sale so a void can take
-    // them back.
-    const per = L.settings(tx).getInt("points_per_rupiah");
+    // Points were retired (2026-10-06): paying a bon earns nothing.
     const sale = tx.findRecordById("sales", rc.getString("sale"));
-    const earned = per > 0 ? Math.floor(amount / per) : 0;
-    if (earned) {
-      const c = tx.findRecordById("users", rc.getString("customer"));
-      c.set("points", c.getInt("points") + earned);
-      tx.save(c);
-      sale.set("points_earned", sale.getInt("points_earned") + earned);
-    }
     // sale.paid stays what was paid at the till — Buku Kas counts this
     // payment from receivable_payments, so adding it here would double it.
     if (rc.getString("status") === "lunas") sale.set("status", "lunas");
     tx.save(sale);
-    result = { payment: pay.id, receivable: rc.id, left: rc.getInt("amount") - rc.getInt("paid"), points_earned: earned };
+    result = { payment: pay.id, receivable: rc.id, left: rc.getInt("amount") - rc.getInt("paid") };
   });
   return e.json(200, result);
 }, $apis.requireAuth("users"));

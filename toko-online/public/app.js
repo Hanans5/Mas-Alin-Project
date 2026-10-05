@@ -123,7 +123,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#drawe
 // Home page copy. Placeholder text for the demo: Mas Alin replaces the
 // story, the campaign line and the Instagram handle with his own.
 const CONTENT = {
-  announce: 'Kirim ke seluruh Indonesia dari Pekalongan · Bayar QRIS atau transfer bank',
+  announce: 'Kirim ke seluruh Indonesia dari Pekalongan · Bayar transfer bank',
   // photo: a wide campaign photo URL; until there is one the hero shows the motif.
   campaign: { season: 'Koleksi Pesisir 2026', motif: 'jlamprang', name: 'Jlamprang', photo: '',
     line: 'Bintang delapan khas Pekalongan, dicap di atas katun dan dijahit jadi tunik dan blouse yang enak dipakai harian.' },
@@ -140,7 +140,7 @@ const CONTENT = {
     'Barang yang tampil di sini adalah stok yang sama dengan rak di toko. Kalau ragu soal ukuran atau warna, tanya dulu lewat WhatsApp, kami jawab di jam buka.',
   ],
   instagram: 'nelinbatik.official',
-  payments: ['QRIS', 'BCA', 'Mandiri', 'BRI', 'BNI', 'GoPay', 'OVO', 'DANA', 'ShopeePay'],
+  payments: ['Transfer bank', 'Tunai (di toko)'],
   couriers: ['J&T Express', 'JNE', 'Ninja Xpress', 'SiCepat', 'AnterAja'],
 };
 const capital = n => n.charAt(0) + n.slice(1).toLowerCase();
@@ -369,7 +369,7 @@ function viewCheckout() {
       <div class="co">
         <form id="cf" novalidate>
           <h1>Pembayaran</h1>
-          <p class="muted" style="margin:0 0 16px">Setelah pesanan dibuat, kamu dapat nomor rekening atau QRIS dan nominal yang harus dibayar. Stok kami simpan untukmu selama 24 jam.</p>
+          <p class="muted" style="margin:0 0 16px">Setelah pesanan dibuat, kamu dapat nomor rekening dan nominal yang harus dibayar. Stok kami simpan untukmu selama 24 jam.</p>
           <section class="step">
             <h2><span class="n">1</span>Penerima</h2>
             <label class="f" for="name">Nama lengkap</label><input class="input" id="name" autocomplete="name" value="${esc(f.name)}" required>
@@ -402,9 +402,9 @@ function viewCheckout() {
           </section>
           <section class="step">
             <h2><span class="n">3</span>Cara bayar</h2>
-            <div class="choice two">
-              <label><input type="radio" name="pay" value="transfer" ${f.payment !== 'qris' ? 'checked' : ''}><span><b>Transfer bank</b><small>Dari bank atau m-banking mana pun</small></span></label>
-              <label><input type="radio" name="pay" value="qris" ${f.payment === 'qris' ? 'checked' : ''}><span><b>QRIS</b><small>GoPay, OVO, DANA, ShopeePay, m-banking</small></span></label>
+            <!-- Mas Alin takes Tunai and Transfer only; online that is bank transfer. -->
+            <div class="choice">
+              <label><input type="radio" name="pay" value="transfer" checked><span><b>Transfer bank</b><small>Dari bank atau m-banking mana pun. Nomor rekening muncul setelah pesanan dibuat.</small></span></label>
             </div>
             <label class="f" for="note">Catatan untuk toko <small>(opsional)</small></label>
             <input class="input" id="note" maxlength="300" placeholder="mis. ukuran, warna, atau jam kirim" value="${esc(f.note)}">
@@ -531,7 +531,7 @@ async function viewOrder(number, token) {
     payPanel = `<section class="panel">
       <h2>Bayar sebelum ${fdt(o.expires_at)}</h2>
       <p class="muted" style="margin:0 0 12px">${left > 0 ? `Sisa ${Math.floor(left / 3600e3)} jam ${Math.floor(left % 3600e3 / 60e3)} menit. ` : ''}Lewat dari itu pesanan batal otomatis dan stok kembali ke toko.</p>
-      ${demoPay ? `<p class="note"><b>Ini data pembayaran contoh.</b> Rekening dan QRIS asli Nelin Batik belum dipasang, jangan transfer ke sini.</p>` : ''}
+      ${demoPay ? `<p class="note"><b>Ini data pembayaran contoh.</b> Rekening asli Nelin Batik belum dipasang, jangan transfer ke sini.</p>` : ''}
       <div class="copyrow"><div><span>Jumlah yang dibayar, persis</span><div class="amount num">${amountHtml}</div></div><button class="btn sm" data-copy="${o.total}">Salin</button></div>
       ${o.payment === 'transfer' ? `
         <div class="copyrow"><div><span>${esc(o.pay.bank_name)}</span><b class="num">${esc(o.pay.bank_account)}</b><span>a.n. ${esc(o.pay.bank_holder)}</span></div><button class="btn sm" data-copy="${esc(o.pay.bank_account)}">Salin</button></div>`
@@ -806,7 +806,7 @@ function drawFooter() {
       </div></div>
     <div><h3>Toko</h3><p>${esc(st.address)}</p><p>Buka setiap hari, ${esc(st.hours)}</p>
       <p>WhatsApp <a href="${esc(waLink(st.wa, 'Halo Nelin Batik, saya mau tanya produk.'))}" target="_blank" rel="noopener">${esc(st.wa)}</a></p></div>
-    <div><h3>Pembayaran & kirim</h3><p>QRIS, transfer bank</p><p>J&T, JNE, Ninja Xpress, SiCepat, AnterAja, atau ambil di toko</p>
+    <div><h3>Pembayaran & kirim</h3><p>Transfer bank, tunai di toko</p><p>J&T, JNE, Ninja Xpress, SiCepat, AnterAja, atau ambil di toko</p>
       <p><a href="#/pesanan">Lacak pesanan</a></p></div>
     <div class="complaint"><h3>Layanan pengaduan konsumen</h3>
       <p>${esc(st.name)}: WhatsApp ${esc(st.wa)}, ${esc(st.address)}.</p>

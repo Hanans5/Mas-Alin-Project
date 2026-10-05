@@ -13,7 +13,7 @@ database:
 | Project | Folder | What it is |
 |---|---|---|
 | Kasir / back office | `~/nelin-batik` | PocketBase backend + kasir/admin web app. Rebuild of his old Laravel system (billing.nelinbatik.my.id). |
-| Online store | `~/nelin-store` (this folder) | Public shop: browse live stock, cart, checkout, QRIS/transfer, proof upload, WhatsApp confirm, order tracking. |
+| Online store | `~/nelin-store` (this folder) | Public shop: browse live stock, cart, checkout, bank transfer, proof upload, WhatsApp confirm, order tracking. |
 
 Both run on this Debian 13 desktop. It's a **demo for Mas Alin**: payment
 details and product photos are placeholders.
@@ -165,7 +165,16 @@ backups/        database snapshot from before the simulation
 - **Laporan:** the Ringkasan tab plus 8 report types (Penjualan, Produk, Kategori, Pelanggan, Karyawan = per kasir, Piutang, Pengeluaran, Tukar barang). Periods: Hari ini … Tahun lalu, 1/3/6 bulan, or custom. Each downloads as **Excel (.xlsx**, built in the browser) and **PDF** (print → Save as PDF). Route `GET /api/reports/table?type=&from=&to=`. Laba/HPP columns are owner only.
 - **Kasir screen:** "Tanya jumlah" (asks the quantity on tap, with 1 kodi / 2 kodi buttons), "Gambar" (product photos), "Layar penuh", and "Kosongkan" (clear the cart). The toggles are remembered per device.
 - **Karyawan (added 2026-10-06):** the shop uses one shared kasir login, so the assistant who served is picked on every sale (`sales.employee`, from the `employees` list). Manage them in Pengguna → Karyawan (owner and admin): name, WhatsApp, active. There are no positions and no salary; Mas Alin works out pay himself from Laporan → Karyawan, which now groups by karyawan with a "Tanpa karyawan" row for older sales. Once at least one karyawan is active, checkout and swaps refuse a sale without one. The picker resets after each sale and "Dilayani: …" prints on the receipt. Kasir accounts can read the active list. Backup from before: `backups/data-before-karyawan-20261006-0408.db`.
-- **Open:** whether lakban/plastik/thermal are sold or shop supplies (ask Mas Alin). Create the one shared kasir login under Pengguna → Kasir when the shop starts using the app. The receipt footer still says goods can't be exchanged; change it in Pengaturan if swaps are offered to buyers.
+- **Payments (2026-10-06, Mas Alin):** **Tunai and Transfer only.** QRIS and all other methods are switched off, and Pengaturan has no Metode Bayar tab. The online store takes bank transfer only (`payment: "qris"` is refused).
+  - **Split payment:** checkout takes `payments: [{method, amount}]` (Tunai and/or Transfer). Change only comes from cash; transfer can't exceed the total. Each method is a row in **`sale_payments`** (cash net of change). `sales.paid` = money kept at the till.
+  - **DP/bon:** if the money is short, the cashier ticks bon (customer required). What was paid is the DP (can be 0 = "Bon penuh"), and the rest becomes a `receivables` row. It's paid off in parts from Keuangan → Piutang or the pelanggan page, Tunai/Transfer, **owner/admin only**. `sales.paid` stays the DP, so Buku Kas never counts a bon payment twice.
+  - **Buku Kas:** one line per `sale_payments` row ("Penjualan" / "DP penjualan"), plus "Bayar piutang" lines. Older sales without rows keep their single `sales.paid` line; the totals for Apr–Oct were checked to be identical before and after.
+  - **Receipt:** shows each method, "Kembali", "DP …" and "SISA BON" / "BON (sudah lunas)".
+  - Swaps pay their difference with the same rules (no bon on a swap).
+- **Points and vouchers retired:** no earning, redeeming or voucher codes. The settings tabs are gone, the points rate is 0, and every voucher is inactive. Old sales keep their numbers, and voiding an old sale still reverses its points and voucher use.
+- **Pelanggan page (for Mas Alin's bonuses):** Pengguna → Pelanggan shows "Total belanja" and "Bon" (sorted by spending). "Buka" opens the form on the left and spending on the right (Bulan ini / Tahun ini / Semua / dates), plus open bons with a Bayar button and purchase history. Routes: `/api/customers/spend`, `/api/customers/{id}/summary` (owner/admin).
+- **Tests:** `tests/finance.mjs` (32 checks: split, change, DP, bon, bon payments, Buku Kas reconciliation, void, swap). Run it like smoke.mjs; it creates its own data, voids it and disables its users. Backup from before: `backups/data-before-split-payment-20261006-0424.db`.
+- **Open:** whether lakban/plastik/thermal are sold or shop supplies (ask Mas Alin). Bon payments are owner/admin only; say so if the shared kasir login should take them too. Create the one shared kasir login under Pengguna → Kasir when the shop starts using the app. The receipt footer still says goods can't be exchanged; change it in Pengaturan if swaps are offered to buyers.
 - **Tests:** `tests/smoke.mjs` now has 44 checks (custom price, kodian, karyawan; it adds a test karyawan and switches it off at the end). `tests/store-smoke.mjs` takes `OWNER_USER` for a non-`alin` owner. Database backup from before this change: `backups/data-before-kodian-tukar-20261006-0359.db`.
 
 **Rules that keep the books right:**

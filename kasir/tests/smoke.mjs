@@ -85,7 +85,7 @@ EMP = emp.body.id;
 const sale1 = await api(K, "POST", "/api/pos/checkout", { items: [{ product: pid, qty: 2 }], customer: custId, payment_method: tunai, paid: 130000 });
 check("kasir checkout 2 × 62.000", sale1.status === 200 && sale1.body.sale.total === 124000 && sale1.body.sale.change === 6000, sale1.body);
 check("sale credited to the karyawan", sale1.body.sale?.employee === EMP, sale1.body.sale?.employee);
-check("points earned 12 (1 per 10.000)", sale1.body.sale?.points_earned === 12, sale1.body.sale);
+check("no points earned (points retired)", sale1.body.sale?.points_earned === 0, sale1.body.sale);
 const fakePrice = await api(K, "POST", "/api/pos/checkout", { items: [{ product: pid, qty: 1, price: 1 }], payment_method: tunai, paid: 1 });
 check("kasir cannot set a custom price", fakePrice.status === 403, fakePrice.body);
 const ownerPrice = await api(O, "POST", "/api/pos/preview", { items: [{ product: pid, qty: 2, price: 50000 }] });
@@ -105,8 +105,8 @@ const directSale = await api(K, "POST", "/api/collections/sales/records", { numb
 check("sales not creatable via records API", directSale.status >= 400, directSale.status);
 
 const sale2 = await api(K, "POST", "/api/pos/checkout", { items: [{ product: pid, qty: 1 }], customer: custId, payment_method: tunai, paid: 20000, credit: true, points_used: 2 });
-// 62.000 − 2 points × 100 = 61.800; 20.000 paid now, 41.800 on credit
-check("piutang sale with points redeemed", sale2.status === 200 && sale2.body.sale.total === 61800 && sale2.body.sale.status === "piutang", sale2.body);
+// points_used is ignored now: 62.000 total, DP 20.000, bon 42.000
+check("DP sale: points ignored, total 62.000, piutang", sale2.status === 200 && sale2.body.sale.total === 62000 && sale2.body.sale.status === "piutang", sale2.body);
 
 const prodNow = (await api(A, "GET", `/api/collections/products/records/${pid}`)).body;
 check("stock 10 − 2 − 1 = 7", prodNow.stock === 7, prodNow.stock);
@@ -118,7 +118,7 @@ check("pelanggan sees no products", custProducts.body.items?.length === 0, custP
 const custCash = await api(C, "GET", "/api/collections/cash_entries/records");
 check("pelanggan sees no cash book", custCash.body.items?.length === 0, custCash.body);
 const custMe = (await api(C, "GET", `/api/collections/users/records/${custId}`)).body;
-check("points 12 − 2 + 2 (on 20.000 paid) = 12", custMe.points === 12, custMe.points);
+check("pelanggan points untouched (0)", custMe.points === 0, custMe.points);
 
 const kasirPL = await api(K, "GET", "/api/reports/profit-loss?from=2026-01-01&to=2030-12-31");
 check("kasir cannot see laba rugi", kasirPL.status === 403, kasirPL.status);
@@ -126,10 +126,10 @@ const adminPL = await api(A, "GET", "/api/reports/profit-loss?from=2026-01-01&to
 check("admin cannot see laba rugi", adminPL.status === 403, adminPL.status);
 
 const recv = (await api(A, "GET", `/api/collections/receivables/records?filter=${encodeURIComponent(`sale="${sale2.body.sale.id}"`)}`)).body.items[0];
-check("receivable 41.800 open", recv?.amount === 41800 && recv?.status === "belum", recv);
+check("bon 42.000 open", recv?.amount === 42000 && recv?.status === "belum", recv);
 const over = await api(A, "POST", "/api/receivables/pay", { receivable: recv.id, amount: 50000, payment_method: tunai });
 check("cannot overpay debt", over.status === 400, over.body);
-const pay = await api(A, "POST", "/api/receivables/pay", { receivable: recv.id, amount: 41800, payment_method: tunai });
+const pay = await api(A, "POST", "/api/receivables/pay", { receivable: recv.id, amount: 42000, payment_method: tunai });
 check("debt paid off", pay.status === 200 && pay.body.left === 0, pay.body);
 
 await api(A, "POST", "/api/collections/expenses/records", { date: new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10) + " 00:00:00.000Z", category: "Listrik", amount: 50000 });
@@ -141,7 +141,7 @@ check("admin voids sale 1", voidA.status === 200, voidA.body);
 const afterVoid = (await api(A, "GET", `/api/collections/products/records/${pid}`)).body;
 check("stock back to 9", afterVoid.stock === 9, afterVoid.stock);
 const custAfter = (await api(C, "GET", `/api/collections/users/records/${custId}`)).body;
-check("void takes back sale 1’s 12 points: 12 + 4 (debt paid) − 12 = 4", custAfter.points === 4, custAfter.points);
+check("void leaves points at 0", custAfter.points === 0, custAfter.points);
 
 const today = new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10);
 const pl = await api(O, "GET", `/api/reports/profit-loss?from=${today}&to=${today}`);

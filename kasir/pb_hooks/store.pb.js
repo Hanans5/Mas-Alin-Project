@@ -53,7 +53,8 @@ routerAdd("POST", "/api/store/orders", (e) => {
   if (phone.length < 10 || phone.length > 15) throw new BadRequestError("Nomor WhatsApp tidak valid.");
   if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new BadRequestError("Alamat email tidak valid.");
   if (["kirim", "ambil"].indexOf(b.delivery) === -1) throw new BadRequestError("Pilih kirim atau ambil di toko.");
-  if (["qris", "transfer"].indexOf(b.payment) === -1) throw new BadRequestError("Pilih QRIS atau transfer bank.");
+  // Mas Alin takes Tunai and Transfer only; online that means bank transfer.
+  if (b.payment !== "transfer") throw new BadRequestError("Pembayaran toko online hanya transfer bank.");
 
   // Abuse guard: a handful of orders per IP per 15 minutes, and a cap on
   // open unpaid orders per phone (each one holds stock).
@@ -216,14 +217,12 @@ routerAdd("POST", "/api/store/admin/{id}/{action}", (e) => {
       const pmName = o.getString("payment") === "qris" ? "QRIS" : "Transfer";
       let pm = null;
       try { pm = tx.findFirstRecordByFilter("payment_methods", "name = {:n}", { n: pmName }); } catch (_) {}
-      const per = L.settings(tx).getInt("points_per_rupiah");
       const subtotal = o.getInt("subtotal");
-      const earned = customer && per > 0 ? Math.floor(subtotal / per) : 0;
       const sale = new Record(tx.findCollectionByNameOrId("sales"));
       sale.load({
         number: L.nextSaleNumber(tx), cashier: e.auth.id, customer: customer ? customer.id : "",
         subtotal, discount: 0, total: subtotal, paid: subtotal, change: 0, payment_method: pm ? pm.id : "",
-        status: "lunas", points_earned: earned, note: `Pesanan online ${number}`,
+        status: "lunas", points_earned: 0, kind: "jual", note: `Pesanan online ${number}`,
       });
       tx.save(sale);
       const ic = tx.findCollectionByNameOrId("sale_items");
@@ -232,7 +231,12 @@ routerAdd("POST", "/api/store/admin/{id}/{action}", (e) => {
         r.load({ sale: sale.id, product: it.product, name: it.name, qty: it.qty, price: it.price, hpp: it.hpp, subtotal: it.price * it.qty });
         tx.save(r);
       }
-      if (earned) { customer.set("points", customer.getInt("points") + earned); tx.save(customer); }
+      // The money as one payment row, like the till (Buku Kas reads these).
+      if (pm && subtotal > 0) {
+        const sp = new Record(tx.findCollectionByNameOrId("sale_payments"));
+        sp.load({ sale: sale.id, payment_method: pm.id, amount: subtotal, by: e.auth.id });
+        tx.save(sp);
+      }
       o.set("sale", sale.id);
       if (customer) o.set("customer", customer.id);
       if (pm) o.set("payment_method", pm.id);
