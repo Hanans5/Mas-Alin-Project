@@ -124,16 +124,38 @@ function query(tx, sql, params, shape) {
 
 // Prices a cart from the database. Shared by /api/pos/preview and checkout so
 // the till shows exactly what will be charged. Client prices are ignored.
+// Kodian: every full 20 pcs of a line sell at the product's kodian price,
+// the rest at the normal price (45 pcs = 40 kodian + 5 normal). A custom
+// price (owner only, checked by the caller) applies to the whole line.
+const KODI = 20;
+function splitPrice(p, qty, custom) {
+  if (custom !== null && custom !== undefined) return [{ qty, price: custom, tier: "kustom" }];
+  const kodi = p.getInt("price_kodi"), normal = p.getInt("price");
+  const k = kodi > 0 ? Math.floor(qty / KODI) * KODI : 0;
+  const out = [];
+  if (k) out.push({ qty: k, price: kodi, tier: "kodian" });
+  if (qty - k) out.push({ qty: qty - k, price: normal, tier: "normal" });
+  return out;
+}
+
 function priceCart(tx, e, b) {
   const items = Array.isArray(b.items) ? b.items : [];
   if (!items.length) throw new BadRequestError("Keranjang kosong.");
   if (items.length > 200) throw new BadRequestError("Terlalu banyak item.");
   // Merge duplicate lines so stock is checked against the real total.
+  // `price` on an item is a custom unit price: owner only (Mas Alin).
   const want = {};
   for (const it of items) {
     const q = int(it.qty, "Qty");
     if (q < 1) throw new BadRequestError("Qty minimal 1.");
-    want[it.product] = (want[it.product] || 0) + q;
+    const w = want[it.product] || (want[it.product] = { qty: 0, price: null });
+    w.qty += q;
+    if (it.price !== undefined && it.price !== null && it.price !== "") {
+      if (!e || role(e) !== "owner") throw new ForbiddenError("Hanya pemilik yang bisa mengubah harga.");
+      const pr = int(it.price, "Harga");
+      if (pr < 0) throw new BadRequestError("Harga tidak boleh minus.");
+      w.price = pr;
+    }
   }
 
   const lines = [];
@@ -142,11 +164,12 @@ function priceCart(tx, e, b) {
     let p;
     try { p = tx.findRecordById("products", pid); } catch (_) { throw new BadRequestError("Produk tidak ditemukan."); }
     if (!p.getBool("active")) throw new BadRequestError(`${p.getString("name")} tidak aktif.`);
-    const qty = want[pid];
+    const qty = want[pid].qty;
     if (p.getInt("stock") < qty) throw new BadRequestError(`Stok ${p.getString("name")} tidak cukup (sisa ${p.getInt("stock")}).`);
-    const price = p.getInt("price");
-    lines.push({ p, qty, price, hpp: p.getInt("hpp"), subtotal: price * qty });
-    subtotal += price * qty;
+    for (const l of splitPrice(p, qty, want[pid].price)) {
+      lines.push({ p, qty: l.qty, price: l.price, tier: l.tier, hpp: p.getInt("hpp"), subtotal: l.price * l.qty });
+      subtotal += l.price * l.qty;
+    }
   }
 
   let customer = null;
@@ -183,4 +206,32 @@ function priceCart(tx, e, b) {
   return { lines, subtotal, discount, total, customer, voucher, pointsUsed, settings: s, voucherDiscount: vDisc, pointsDiscount: pDisc };
 }
 
-module.exports = { idr, priceCart, wibDate, wibRange, role, requireRole, int, moveStock, nextSaleNumber, voucherDiscount, settings, query };
+// ── item swaps ──
+// What can still be swapped from a sale: per product, sold minus already
+// returned in earlier swaps, at the average unit price and HPP paid.
+function returnable(tx, sale) {
+  const out = {};
+  for (const it of tx.findRecordsByFilter("sale_items", "sale = {:s}", "created", 0, 0, { s: sale.id })) {
+    const pid = it.getString("product");
+    const r = out[pid] || (out[pid] = { product: pid, name: it.getString("name"), sold: 0, value: 0, hppValue: 0, returned: 0 });
+    if (it.getInt("qty") > 0) { r.sold += it.getInt("qty"); r.value += it.getInt("subtotal"); r.hppValue += it.getInt("hpp") * it.getInt("qty"); }
+  }
+  for (const sw of tx.findRecordsByFilter("sales", "ref_sale = {:s} && status != 'batal'", "", 0, 0, { s: sale.id })) {
+    for (const it of tx.findRecordsByFilter("sale_items", "sale = {:s} && qty < 0", "", 0, 0, { s: sw.id })) {
+      if (out[it.getString("product")]) out[it.getString("product")].returned += -it.getInt("qty");
+    }
+  }
+  return Object.values(out).map((r) => ({
+    product: r.product, name: r.name, sold: r.sold, returned: r.returned, left: r.sold - r.returned,
+    price: r.sold ? Math.round(r.value / r.sold) : 0, hpp: r.sold ? Math.round(r.hppValue / r.sold) : 0,
+  }));
+}
+// A sale by its number (TRX-261006-0001, any case) or record id.
+function findSale(tx, key) {
+  const k = String(key || "").trim();
+  try { return tx.findFirstRecordByFilter("sales", "number = {:n}", { n: k.toUpperCase() }); } catch (_) {}
+  try { return tx.findRecordById("sales", k); } catch (_) {}
+  throw new NotFoundError("Transaksi tidak ditemukan.");
+}
+
+module.exports = { returnable, findSale, idr, priceCart, splitPrice, KODI, wibDate, wibRange, role, requireRole, int, moveStock, nextSaleNumber, voucherDiscount, settings, query };

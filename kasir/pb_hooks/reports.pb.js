@@ -156,3 +156,90 @@ routerAdd("GET", "/api/reports/cashbook", (e) => {
   }
   return e.json(200, { from: q.from, to: q.to, opening, total_in: totalIn, total_out: totalOut, closing: balance, lines });
 }, $apis.requireAuth("users"));
+
+// GET /api/reports/table?type=&from=&to= — one report as a table, the same
+// rows the screen, Excel and PDF show. Types follow the old system's list:
+// penjualan, produk, kategori, pelanggan, karyawan (by cashier), piutang,
+// pengeluaran, retur (item swaps). Profit columns are for the owner only.
+routerAdd("GET", "/api/reports/table", (e) => {
+  const L = require(`${__hooks}/lib.js`);
+  L.requireRole(e, ["owner", "admin"]);
+  const q = e.requestInfo().query;
+  const r = L.wibRange(q.from, q.to);
+  const owner = L.role(e) === "owner";
+  const live = "s.status != 'batal' AND s.created >= {:from} AND s.created < {:to}";
+  // Per sale: items (net of returns) and HPP, so grouping never double counts.
+  const perSale = `SELECT s.*, COALESCE((SELECT SUM(qty) FROM sale_items WHERE sale = s.id), 0) AS items,
+      COALESCE((SELECT SUM(hpp * qty) FROM sale_items WHERE sale = s.id), 0) AS hpp_total
+      FROM sales s WHERE ${live}`;
+  const C = (key, label, type) => ({ key, label, type: type || "text" });
+  const profit = owner ? [C("laba", "Laba", "rp")] : [];
+  let title, columns, rows;
+
+  if (q.type === "penjualan") {
+    title = "Laporan Penjualan";
+    columns = [C("created", "Tanggal", "date"), C("number", "No. transaksi"), C("kasir", "Kasir"), C("pelanggan", "Pelanggan"), C("items", "Item", "num"),
+      C("subtotal", "Subtotal", "rp"), C("discount", "Diskon", "rp"), C("total", "Total", "rp"), C("metode", "Metode"), C("status", "Status"), ...profit];
+    rows = L.query(e.app, `SELECT x.created, x.number, COALESCE(NULLIF(u.name,''), u.username, '') AS kasir,
+        COALESCE(NULLIF(c.name,''), c.username, 'Umum') AS pelanggan, x.items, x.subtotal, x.discount, x.total,
+        COALESCE(m.name, '-') AS metode, CASE WHEN x.kind = 'tukar' THEN 'tukar' ELSE x.status END AS status, x.total - x.hpp_total AS laba
+        FROM (${perSale}) x LEFT JOIN users u ON u.id = x.cashier LEFT JOIN users c ON c.id = x.customer
+        LEFT JOIN payment_methods m ON m.id = x.payment_method ORDER BY x.created`, r,
+      { created: "", number: "", kasir: "", pelanggan: "", items: 0, subtotal: 0, discount: 0, total: 0, metode: "", status: "", laba: 0 });
+  } else if (q.type === "produk" || q.type === "kategori") {
+    const byCat = q.type === "kategori";
+    title = byCat ? "Laporan Kategori Produk" : "Laporan Produk";
+    columns = byCat
+      ? [C("nama", "Kategori"), C("qty", "Terjual (pcs)", "num"), C("amount", "Penjualan", "rp"), ...(owner ? [C("hpp", "HPP", "rp")] : []), ...profit]
+      : [C("nama", "Produk"), C("sku", "SKU"), C("kategori", "Kategori"), C("qty", "Terjual (pcs)", "num"), C("amount", "Penjualan", "rp"), ...(owner ? [C("hpp", "HPP", "rp")] : []), ...profit];
+    rows = L.query(e.app, `SELECT ${byCat ? "COALESCE(k.name, 'Tanpa kategori')" : "i.name"} AS nama, COALESCE(p.sku, '') AS sku, COALESCE(k.name, '') AS kategori,
+        SUM(i.qty) AS qty, SUM(i.subtotal) AS amount, SUM(i.hpp * i.qty) AS hpp, SUM(i.subtotal) - SUM(i.hpp * i.qty) AS laba
+        FROM sale_items i JOIN sales s ON s.id = i.sale LEFT JOIN products p ON p.id = i.product LEFT JOIN categories k ON k.id = p.category
+        WHERE ${live} GROUP BY ${byCat ? "p.category" : "i.product"} ORDER BY amount DESC`, r,
+      { nama: "", sku: "", kategori: "", qty: 0, amount: 0, hpp: 0, laba: 0 });
+  } else if (q.type === "pelanggan" || q.type === "karyawan") {
+    const cust = q.type === "pelanggan";
+    title = cust ? "Laporan Pelanggan" : "Laporan Karyawan (kasir)";
+    columns = [C("nama", cust ? "Pelanggan" : "Kasir"), C("kontak", "Kontak"), C("penjualan", "Penjualan", "rp"), C("transaksi", "Transaksi", "num"),
+      C("items", "Item", "num"), C("diskon", "Diskon", "rp"), ...profit];
+    const col = cust ? "customer" : "cashier";
+    rows = L.query(e.app, `SELECT COALESCE(NULLIF(u.name,''), u.username, ${cust ? "'Umum (tanpa member)'" : "'-'"}) AS nama, COALESCE(u.phone, '') AS kontak,
+        SUM(x.total) AS penjualan, COUNT(*) AS transaksi, SUM(x.items) AS items, SUM(x.discount) AS diskon, SUM(x.total - x.hpp_total) AS laba
+        FROM (${perSale}) x LEFT JOIN users u ON u.id = x.${col} GROUP BY x.${col} ORDER BY penjualan DESC`, r,
+      { nama: "", kontak: "", penjualan: 0, transaksi: 0, items: 0, diskon: 0, laba: 0 });
+  } else if (q.type === "piutang") {
+    title = "Laporan Piutang";
+    columns = [C("created", "Tanggal", "date"), C("number", "No. transaksi"), C("pelanggan", "Pelanggan"), C("kontak", "Kontak"),
+      C("amount", "Jumlah", "rp"), C("paid", "Dibayar", "rp"), C("sisa", "Sisa", "rp"), C("due", "Jatuh tempo", "day"), C("status", "Status")];
+    rows = L.query(e.app, `SELECT rc.created, COALESCE(s.number, '') AS number, COALESCE(NULLIF(u.name,''), u.username, '') AS pelanggan, COALESCE(u.phone, '') AS kontak,
+        rc.amount, rc.paid, rc.amount - rc.paid AS sisa, COALESCE(rc.due_date, '') AS due, rc.status
+        FROM receivables rc LEFT JOIN sales s ON s.id = rc.sale LEFT JOIN users u ON u.id = rc.customer
+        WHERE rc.status != 'batal' AND rc.created >= {:from} AND rc.created < {:to} ORDER BY rc.created`, r,
+      { created: "", number: "", pelanggan: "", kontak: "", amount: 0, paid: 0, sisa: 0, due: "", status: "" });
+  } else if (q.type === "pengeluaran") {
+    title = "Laporan Pengeluaran";
+    columns = [C("date", "Tanggal", "day"), C("category", "Kategori"), C("note", "Keterangan"), C("metode", "Metode"), C("amount", "Jumlah", "rp")];
+    rows = L.query(e.app, `SELECT x.date, x.category, x.note, COALESCE(m.name, '-') AS metode, x.amount
+        FROM expenses x LEFT JOIN payment_methods m ON m.id = x.payment_method
+        WHERE x.date >= {:from} AND x.date < {:to} ORDER BY x.date`, r,
+      { date: "", category: "", note: "", metode: "", amount: 0 });
+  } else if (q.type === "retur") {
+    title = "Laporan Tukar Barang";
+    columns = [C("created", "Tanggal", "date"), C("number", "No. tukar"), C("dari", "Dari transaksi"), C("kembali", "Barang dikembalikan"),
+      C("baru", "Barang baru"), C("total", "Selisih dibayar", "rp"), C("kasir", "Kasir")];
+    rows = L.query(e.app, `SELECT s.created, s.number, COALESCE(o.number, '') AS dari,
+        COALESCE((SELECT GROUP_CONCAT((-qty) || '× ' || name, ', ') FROM sale_items WHERE sale = s.id AND qty < 0), '') AS kembali,
+        COALESCE((SELECT GROUP_CONCAT(qty || '× ' || name, ', ') FROM sale_items WHERE sale = s.id AND qty > 0), '') AS baru,
+        s.total, COALESCE(NULLIF(u.name,''), u.username, '') AS kasir
+        FROM sales s LEFT JOIN sales o ON o.id = s.ref_sale LEFT JOIN users u ON u.id = s.cashier
+        WHERE s.kind = 'tukar' AND ${live} ORDER BY s.created`, r,
+      { created: "", number: "", dari: "", kembali: "", baru: "", total: 0, kasir: "" });
+  } else {
+    throw new BadRequestError("Jenis laporan tidak dikenal.");
+  }
+  const totals = {};
+  for (const c of columns) if (c.type === "rp" || c.type === "num") totals[c.key] = rows.reduce((a, x) => a + (x[c.key] || 0), 0);
+  // Keep only the listed columns (profit stays server-side for admins).
+  rows = rows.map((x) => { const o = {}; for (const c of columns) o[c.key] = x[c.key]; return o; });
+  return e.json(200, { title, from: q.from, to: q.to, columns, rows, totals });
+}, $apis.requireAuth("users"));

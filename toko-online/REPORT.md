@@ -158,6 +158,15 @@ backups/        database snapshot from before the simulation
 - Pengguna
 - Pengaturan (Toko & Struk, Toko Online, Metode Bayar, Poin Member, Voucher)
 
+**Added 2026-10-06 (from Mas Alin's old system, confirmed by him):**
+- **Kodian price:** Produk → Ubah → "Harga kodian per pcs" (`products.price_kodi`). The server applies it to every full 20 pcs of a cart line (45 pcs = 40 kodian + 5 normal) and saves the parts as separate receipt lines (`sale_items.tier`: normal / kodian / kustom / retur). The till shows "2 kodi × Rp… + 5 × Rp…".
+- **Custom price:** the "Harga" button on a cart line, **owner only**. The server refuses a price from anyone else (403).
+- **Tukar barang (item swap only, no money back):** Transaksi → Tukar barang (type the receipt number), or the button on a receipt. Returned items go back into stock (move `retur`), new items leave it, and the buyer pays any difference. The new items must be worth at least as much. Stored as a sale with `kind = "tukar"` and `ref_sale` = the original. Returned lines have negative qty, so reports and HPP net out. A sale with a live swap can't be voided until the swap is voided. Routes: `GET /api/pos/swap/{number}`, `POST /api/pos/swap`.
+- **Laporan:** the Ringkasan tab plus 8 report types (Penjualan, Produk, Kategori, Pelanggan, Karyawan = per kasir, Piutang, Pengeluaran, Tukar barang). Periods: Hari ini … Tahun lalu, 1/3/6 bulan, or custom. Each downloads as **Excel (.xlsx**, built in the browser) and **PDF** (print → Save as PDF). Route `GET /api/reports/table?type=&from=&to=`. Laba/HPP columns are owner only.
+- **Kasir screen:** "Tanya jumlah" (asks the quantity on tap, with 1 kodi / 2 kodi buttons), "Gambar" (product photos), "Layar penuh", and "Kosongkan" (clear the cart). The toggles are remembered per device.
+- **Open:** karyawan/gaji (waiting for Hanan's answer) and whether lakban/plastik/thermal are sold or shop supplies (ask Mas Alin). The receipt footer still says goods can't be exchanged; change it in Pengaturan if swaps are offered to buyers.
+- **Tests:** `tests/smoke.mjs` now has 40 checks (custom price, kodian). `tests/store-smoke.mjs` takes `OWNER_USER` for a non-`alin` owner. Database backup from before this change: `backups/data-before-kodian-tukar-20261006-0359.db`.
+
 **Rules that keep the books right:**
 - Sales, stock moves, debt payments and web-order state changes are written only by routes, each inside one transaction.
 - Prices always come from the database, never from the browser.

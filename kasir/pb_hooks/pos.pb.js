@@ -2,7 +2,8 @@
 
 // POST /api/pos/checkout — the only way a sale is created.
 // Body: {
-//   items: [{ product, qty }],       prices come from the database, not the client
+//   items: [{ product, qty, price? }] prices come from the database; kodian per
+//                                    20 pcs; `price` = custom unit price, owner only
 //   customer?: user id (role pelanggan)
 //   voucher_code?: string
 //   discount?: rupiah                manual discount — owner/admin only
@@ -45,7 +46,7 @@ routerAdd("POST", "/api/pos/checkout", (e) => {
     sale.load({
       number: L.nextSaleNumber(tx), cashier: e.auth.id, customer: customer ? customer.id : "",
       subtotal, discount, voucher: voucher ? voucher.id : "", points_used: pointsUsed,
-      total, paid, change, payment_method: pm.id, status, points_earned: earned,
+      total, paid, change, payment_method: pm.id, status, points_earned: earned, kind: "jual",
       note: String(b.note || "").slice(0, 300),
     });
     tx.save(sale);
@@ -54,7 +55,7 @@ routerAdd("POST", "/api/pos/checkout", (e) => {
     const itemsCol = tx.findCollectionByNameOrId("sale_items");
     for (const l of lines) {
       const r = new Record(itemsCol);
-      r.load({ sale: sale.id, product: l.p.id, name: l.p.getString("name"), qty: l.qty, price: l.price, hpp: l.hpp, subtotal: l.subtotal });
+      r.load({ sale: sale.id, product: l.p.id, name: l.p.getString("name"), qty: l.qty, price: l.price, hpp: l.hpp, subtotal: l.subtotal, tier: l.tier });
       tx.save(r);
       L.moveStock(tx, { product: l.p, type: "penjualan", qty: -l.qty, ref: sale.getString("number"), by: e.auth.id });
     }
@@ -89,6 +90,7 @@ routerAdd("POST", "/api/pos/preview", (e) => {
   const b = e.requestInfo().body || {};
   const c = L.priceCart(e.app, e, b);
   return e.json(200, {
+    lines: c.lines.map((l) => ({ product: l.p.id, qty: l.qty, price: l.price, tier: l.tier, subtotal: l.subtotal })),
     subtotal: c.subtotal, discount: c.discount, total: c.total, points_used: c.pointsUsed,
     voucher_discount: c.voucherDiscount, points_discount: c.pointsDiscount,
     customer_points: c.customer ? c.customer.getInt("points") : 0,
@@ -109,6 +111,9 @@ routerAdd("POST", "/api/pos/void/{id}", (e) => {
     try { sale = tx.findRecordById("sales", e.request.pathValue("id")); } catch (_) { throw new NotFoundError("Transaksi tidak ditemukan."); }
     if (sale.getString("status") === "batal") throw new BadRequestError("Transaksi sudah dibatalkan.");
     const number = sale.getString("number");
+    // Its returned items are already back on the shelf through the swap.
+    const swaps = tx.findRecordsByFilter("sales", "ref_sale = {:s} && status != 'batal'", "", 0, 0, { s: sale.id });
+    if (swaps.length) throw new BadRequestError(`Batalkan dulu transaksi tukar ${swaps.map((x) => x.getString("number")).join(", ")}.`);
 
     for (const it of tx.findRecordsByFilter("sale_items", "sale = {:s}", "", 0, 0, { s: sale.id })) {
       L.moveStock(tx, { product: it.getString("product"), type: "batal", qty: it.getInt("qty"), ref: number, note: reason, by: e.auth.id });
@@ -138,4 +143,93 @@ routerAdd("POST", "/api/pos/void/{id}", (e) => {
     tx.save(sale);
   });
   return e.json(200, { ok: true });
+}, $apis.requireAuth("users"));
+
+// ── tukar barang (item swap) ────────────────────────
+// Returned goods go back on the shelf, new goods leave it, and the buyer
+// pays any difference. Swaps only: the new goods must be worth at least as
+// much as the returned ones (no money back), per Mas Alin.
+
+// GET /api/pos/swap/{key} — a sale (by number or id) and what can be swapped.
+routerAdd("GET", "/api/pos/swap/{key}", (e) => {
+  const L = require(`${__hooks}/lib.js`);
+  L.requireRole(e, ["owner", "admin", "kasir"]);
+  const sale = L.findSale(e.app, e.request.pathValue("key"));
+  if (sale.getString("status") === "batal") throw new BadRequestError("Transaksi ini sudah dibatalkan.");
+  if (sale.getString("kind") === "tukar") throw new BadRequestError("Ini transaksi tukar. Tukar dari transaksi penjualan aslinya.");
+  e.app.expandRecord(sale, ["customer"], null);
+  const c = sale.expandedOne("customer");
+  return e.json(200, {
+    id: sale.id, number: sale.getString("number"), created: sale.getString("created"), total: sale.getInt("total"),
+    customer: c ? (c.getString("name") || c.getString("username")) : "",
+    items: L.returnable(e.app, sale),
+  });
+}, $apis.requireAuth("users"));
+
+// POST /api/pos/swap — body: { sale, returns:[{product, qty}], items:[{product, qty, price?}],
+//   payment_method?, paid?, note? }
+routerAdd("POST", "/api/pos/swap", (e) => {
+  const L = require(`${__hooks}/lib.js`);
+  L.requireRole(e, ["owner", "admin", "kasir"]);
+  const b = e.requestInfo().body || {};
+  let saleId = "";
+  e.app.runInTransaction((tx) => {
+    const orig = L.findSale(tx, b.sale);
+    if (orig.getString("status") === "batal") throw new BadRequestError("Transaksi asli sudah dibatalkan.");
+    if (orig.getString("kind") === "tukar") throw new BadRequestError("Tukar dari transaksi penjualan aslinya.");
+    const can = {};
+    for (const r of L.returnable(tx, orig)) can[r.product] = r;
+
+    const back = [];
+    let backValue = 0;
+    for (const r of Array.isArray(b.returns) ? b.returns : []) {
+      const q = L.int(r.qty, "Qty kembali");
+      if (q < 1) continue;
+      const c = can[r.product];
+      if (!c) throw new BadRequestError("Barang yang dikembalikan tidak ada di transaksi ini.");
+      if (q > c.left) throw new BadRequestError(`${c.name}: maksimal ${c.left} pcs bisa ditukar.`);
+      back.push({ ...c, qty: q });
+      backValue += c.price * q;
+    }
+    if (!back.length) throw new BadRequestError("Pilih barang yang dikembalikan.");
+
+    const cart = L.priceCart(tx, e, { items: b.items });
+    const diff = cart.subtotal - backValue;
+    if (diff < 0) throw new BadRequestError(`Barang baru (Rp ${L.idr(cart.subtotal)}) lebih murah dari barang yang dikembalikan (Rp ${L.idr(backValue)}). Tukar hanya untuk barang senilai atau lebih mahal; tambah barang atau pilih yang lain.`);
+
+    let pm = null, handed = 0;
+    if (diff > 0) {
+      try { pm = tx.findRecordById("payment_methods", b.payment_method); } catch (_) { throw new BadRequestError("Pilih metode pembayaran untuk selisih."); }
+      handed = L.int(b.paid || 0, "Bayar");
+      if (handed < diff) throw new BadRequestError(`Uang kurang Rp ${L.idr(diff - handed)}.`);
+    }
+
+    const sale = new Record(tx.findCollectionByNameOrId("sales"));
+    sale.load({
+      number: L.nextSaleNumber(tx), cashier: e.auth.id, customer: orig.getString("customer"),
+      subtotal: diff, discount: 0, points_used: 0, total: diff, paid: diff, change: diff ? handed - diff : 0,
+      payment_method: pm ? pm.id : "", status: "lunas", points_earned: 0, kind: "tukar", ref_sale: orig.id,
+      note: (`Tukar dari ${orig.getString("number")}` + (b.note ? " | " + String(b.note) : "")).slice(0, 300),
+    });
+    tx.save(sale);
+    saleId = sale.id;
+    const ic = tx.findCollectionByNameOrId("sale_items");
+    const number = sale.getString("number");
+    for (const r of back) {
+      const it = new Record(ic);
+      it.load({ sale: sale.id, product: r.product, name: r.name, qty: -r.qty, price: r.price, hpp: r.hpp, subtotal: -r.price * r.qty, tier: "retur" });
+      tx.save(it);
+      L.moveStock(tx, { product: r.product, type: "retur", qty: r.qty, ref: number, note: "Ditukar dari " + orig.getString("number"), by: e.auth.id });
+    }
+    for (const l of cart.lines) {
+      const it = new Record(ic);
+      it.load({ sale: sale.id, product: l.p.id, name: l.p.getString("name"), qty: l.qty, price: l.price, hpp: l.hpp, subtotal: l.subtotal, tier: l.tier });
+      tx.save(it);
+      L.moveStock(tx, { product: l.p, type: "penjualan", qty: -l.qty, ref: number, note: "Tukar " + orig.getString("number"), by: e.auth.id });
+    }
+  });
+  const sale = e.app.findRecordById("sales", saleId);
+  e.app.expandRecord(sale, ["payment_method", "customer", "cashier", "ref_sale"], null);
+  const items2 = e.app.findRecordsByFilter("sale_items", "sale = {:s}", "created", 0, 0, { s: saleId });
+  return e.json(200, { sale, items: items2 });
 }, $apis.requireAuth("users"));

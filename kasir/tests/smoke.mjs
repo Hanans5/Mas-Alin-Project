@@ -75,7 +75,16 @@ const sale1 = await api(K, "POST", "/api/pos/checkout", { items: [{ product: pid
 check("kasir checkout 2 × 62.000", sale1.status === 200 && sale1.body.sale.total === 124000 && sale1.body.sale.change === 6000, sale1.body);
 check("points earned 12 (1 per 10.000)", sale1.body.sale?.points_earned === 12, sale1.body.sale);
 const fakePrice = await api(K, "POST", "/api/pos/checkout", { items: [{ product: pid, qty: 1, price: 1 }], payment_method: tunai, paid: 1 });
-check("client price ignored (Rp 1 rejected as underpaid)", fakePrice.status === 400, fakePrice.body);
+check("kasir cannot set a custom price", fakePrice.status === 403, fakePrice.body);
+const ownerPrice = await api(O, "POST", "/api/pos/preview", { items: [{ product: pid, qty: 2, price: 50000 }] });
+check("owner custom price 2 × 50.000", ownerPrice.status === 200 && ownerPrice.body.subtotal === 100000 && ownerPrice.body.lines[0].tier === "kustom", ownerPrice.body);
+// Kodian needs 20+ pcs on hand: borrow 30 for the preview, then put them back out.
+await api(A, "PATCH", `/api/collections/products/records/${pid}`, { price_kodi: 60000 });
+await api(A, "POST", "/api/stock/move", { product: pid, type: "masuk", qty: 30, note: "uji kodian" });
+const kodi = await api(K, "POST", "/api/pos/preview", { items: [{ product: pid, qty: 25 }] });
+check("kodian: 25 pcs = 20 × 60.000 + 5 × 62.000", kodi.status === 200 && kodi.body.subtotal === 1510000, kodi.body);
+await api(A, "POST", "/api/stock/move", { product: pid, type: "keluar", qty: 30, note: "uji kodian selesai" });
+await api(A, "PATCH", `/api/collections/products/records/${pid}`, { price_kodi: 0 });
 const kasirDisc = await api(K, "POST", "/api/pos/checkout", { items: [{ product: pid, qty: 1 }], discount: 50000, payment_method: tunai, paid: 62000 });
 check("kasir cannot give manual discount", kasirDisc.status === 403, kasirDisc.status);
 const tooMany = await api(K, "POST", "/api/pos/checkout", { items: [{ product: pid, qty: 50 }], payment_method: tunai, paid: 9999999 });

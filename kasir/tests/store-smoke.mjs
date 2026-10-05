@@ -1,7 +1,7 @@
 // Online store end to end: order → proof → confirm → sale → ship → done,
 // plus cancel, wrong token, oversell. Creates real orders; leaves them as
 // demo history (they're cancelled or completed by the end).
-//   PB=http://127.0.0.1:8090 OWNER_PASS=… node tests/store-smoke.mjs
+//   PB=http://127.0.0.1:8090 OWNER_PASS=… [OWNER_USER=alin] node tests/store-smoke.mjs
 const PB = process.env.PB || "http://127.0.0.1:8090";
 let failures = 0;
 const check = (name, ok, detail) => { console.log(`${ok ? "PASS" : "FAIL"}  ${name}${ok ? "" : "  " + JSON.stringify(detail)}`); if (!ok) failures++; };
@@ -9,7 +9,7 @@ async function api(token, method, path, body) {
   const r = await fetch(PB + path, { method, headers: { "Content-Type": "application/json", ...(token ? { Authorization: token } : {}) }, body: body ? JSON.stringify(body) : undefined });
   return { status: r.status, body: await r.json().catch(() => ({})) };
 }
-const O = (await api(null, "POST", "/api/collections/users/auth-with-password", { identity: "alin", password: process.env.OWNER_PASS })).body.token;
+const O = (await api(null, "POST", "/api/collections/users/auth-with-password", { identity: process.env.OWNER_USER || "alin", password: process.env.OWNER_PASS })).body.token;
 const cat = (await api(null, "GET", "/api/store/catalog")).body;
 const p = cat.products.find((x) => x.stock > 20);
 const stockBefore = p.stock;

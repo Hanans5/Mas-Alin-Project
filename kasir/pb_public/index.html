@@ -184,6 +184,30 @@ h3.sec{margin:18px 0 8px;font-size:15px}
 .subtabs button{border:0;background:none;padding:10px 14px;font-weight:700;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;min-height:44px}
 .subtabs button.on{color:var(--accent);border-bottom-color:var(--accent)}
 .link{border:0;background:none;padding:0;color:var(--accent);font-weight:700;text-decoration:underline;text-underline-offset:3px;min-height:0}
+.swline{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.swline.off{opacity:.5}
+.swline .qty{flex:0 0 auto}
+.swhits{display:grid;gap:4px;margin:6px 0 8px}
+.swhits button{display:flex;justify-content:space-between;gap:10px;text-align:left;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:8px 10px}
+.swhits button:disabled{opacity:.5}
+.tblwrap{overflow-x:auto}
+.tbl .totrow td{border-top:2px solid var(--line);background:var(--bg)}
+.pos-tools{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.tool{border:1px solid var(--line);background:var(--card);border-radius:99px;padding:6px 12px;font-weight:600;font-size:13px;color:var(--muted);min-height:34px}
+.tool.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.prod .kodi{display:block;font-size:11px;font-weight:600;color:var(--ok)}
+.prod.withimg{padding-top:8px}
+.pimg{display:block;width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;margin-bottom:6px;background:var(--bg)}
+.pimg.ph{display:grid;place-items:center;font-weight:800;font-size:22px;color:var(--muted)}
+.line .u.special{color:var(--ok);font-weight:600}
+.lp{border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);border-radius:6px;font-size:11px;font-weight:700;padding:1px 7px;margin-left:4px;min-height:0}
+.cart-tools{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:2px 0 4px;flex-wrap:wrap}
+.cart-tools #cclear{color:var(--bad);border:1px solid var(--line);min-height:30px;padding:4px 10px}
+.cart-tools .err{margin:0;padding:6px 10px;font-size:13px}
+.choice-list{display:grid;gap:8px}
+.pick{display:flex;gap:10px;align-items:flex-start;border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer}
+.pick:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+.pick b{display:block}.pick small{color:var(--muted)}
 .btn.wa{background:#1f9d55;border-color:#1f9d55;color:#fff;text-decoration:none}
 .linkrow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
 .linkrow>span{display:grid;min-width:0}.linkrow a{overflow-wrap:anywhere;font-size:13px}
@@ -287,6 +311,10 @@ const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const rp = n => 'Rp ' + Math.round(n || 0).toLocaleString('id-ID');
 const role = () => S.user?.role || '';
 const isManager = () => role() === 'owner' || role() === 'admin';
+const isOwner = () => role() === 'owner';
+// Till preferences, per device: ask quantity on tap, show product photos.
+const POSP = (() => { try { return Object.assign({ askQty: false, images: false }, JSON.parse(localStorage.getItem('nb_posp') || '{}')); } catch (_) { return { askQty: false, images: false }; } })();
+const savePOSP = () => { try { localStorage.setItem('nb_posp', JSON.stringify(POSP)); } catch (_) {} };
 const pbDate = s => new Date(String(s).replace(' ', 'T'));
 const fmtTime = s => pbDate(s).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 const WIB = 7 * 3600e3;
@@ -410,7 +438,7 @@ function renderShell() {
 // ── POS ─────────────────────────────────────────────
 async function loadCatalog() {
   const [p, c, m] = await Promise.all([
-    list('products', { filter: 'active = true', sort: 'name', fields: 'id,name,sku,barcode,category,price,stock,min_stock,unit' }),
+    list('products', { filter: 'active = true', sort: 'name', fields: 'id,name,sku,barcode,category,price,price_kodi,photo,stock,min_stock,unit' }),
     list('categories', { sort: 'name' }),
     list('payment_methods', { filter: 'active = true', sort: 'created' }),
   ]);
@@ -427,6 +455,11 @@ async function viewPOS() {
       <div class="search">
         <input class="input" id="q" placeholder="Cari nama / SKU / scan barcode…" autocomplete="off" value="${esc(S.q)}">
       </div>
+      <div class="pos-tools">
+        <button class="tool ${POSP.askQty ? 'on' : ''}" id="tAsk" aria-pressed="${POSP.askQty}">Tanya jumlah</button>
+        <button class="tool ${POSP.images ? 'on' : ''}" id="tImg" aria-pressed="${POSP.images}">Gambar</button>
+        <button class="tool" id="tFull">Layar penuh</button>
+      </div>
       <div class="chips" id="chips"></div>
       <div class="grid" id="grid"></div>
     </section>
@@ -435,6 +468,11 @@ async function viewPOS() {
   <button class="cartbar" id="cartbar"></button>`;
   const q = $('#q');
   q.oninput = () => { S.q = q.value; renderGrid(); };
+  const tog = (id, key) => { $('#' + id).onclick = () => { POSP[key] = !POSP[key]; savePOSP(); $('#' + id).classList.toggle('on', POSP[key]); $('#' + id).setAttribute('aria-pressed', POSP[key]); renderGrid(); }; };
+  tog('tAsk', 'askQty'); tog('tImg', 'images');
+  const full = () => { $('#tFull').textContent = document.fullscreenElement ? 'Keluar layar penuh' : 'Layar penuh'; };
+  $('#tFull').onclick = () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.())?.catch?.(() => toast('Layar penuh tidak didukung di perangkat ini.', true));
+  document.onfullscreenchange = full; full();
   // A barcode scanner types the code and presses Enter: exact SKU/barcode
   // match goes straight into the cart; otherwise a single search hit does.
   q.onkeydown = ev => {
@@ -471,23 +509,78 @@ function renderGrid() {
   $('#grid').innerHTML = items.length ? items.map(p => {
     const left = p.stock - (inCart[p.id] || 0);
     const low = p.min_stock > 0 && p.stock <= p.min_stock;
-    return `<button class="prod" data-id="${p.id}" ${left <= 0 ? 'disabled' : ''}>
+    return `<button class="prod ${POSP.images ? 'withimg' : ''}" data-id="${p.id}" ${left <= 0 ? 'disabled' : ''}>
       ${inCart[p.id] ? `<span class="badge inCart">${inCart[p.id]} di keranjang</span>` : ''}
+      ${POSP.images ? (p.photo ? `<img class="pimg" src="/api/files/products/${p.id}/${p.photo}?thumb=160x160" alt="" loading="lazy">` : `<span class="pimg ph" aria-hidden="true">${esc(p.name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase())}</span>`) : ''}
       <span class="n">${esc(p.name)}</span>
       <span class="s ${low ? 'low' : ''}">${esc(p.sku)} · stok ${p.stock}${low ? ' · menipis' : ''}</span>
-      <span class="p num">${rp(p.price)}</span>
+      <span class="p num">${rp(p.price)}${p.price_kodi ? `<small class="kodi">kodian ${rp(p.price_kodi)}</small>` : ''}</span>
     </button>`;
   }).join('') : `<div class="empty">${S.products.length ? 'Tidak ada produk yang cocok.' : 'Belum ada produk. Owner/admin bisa menambahkan lewat panel admin.'}</div>`;
-  $('#grid').querySelectorAll('.prod').forEach(b => b.onclick = () => addToCart(b.dataset.id));
+  $('#grid').querySelectorAll('.prod').forEach(b => b.onclick = () => POSP.askQty ? askQty(b.dataset.id) : addToCart(b.dataset.id));
 }
 
-function addToCart(id) {
+function addToCart(id, n = 1) {
   const p = prodById(id); if (!p) return;
   const l = S.cart.find(x => x.id === id);
   const now = l ? l.qty : 0;
-  if (now + 1 > p.stock) return toast(`Stok ${p.name} hanya ${p.stock}.`, true);
-  if (l) l.qty++; else S.cart.push({ id, qty: 1 });
+  if (now + n > p.stock) return toast(`Stok ${p.name} hanya ${p.stock}${now ? `, sudah ${now} di keranjang` : ''}.`, true);
+  if (l) l.qty += n; else S.cart.push({ id, qty: n });
   cartChanged();
+}
+// "Tanya jumlah": tapping a product asks how many (the old system's habit).
+function askQty(id) {
+  const p = prodById(id); if (!p) return;
+  const quick = [1, 5, 10, KODI, KODI * 2].filter(n => n <= p.stock);
+  openModal(`<h2>${esc(p.name)}</h2>
+    <form id="aqf"><label class="f" for="aqn">Jumlah</label>
+      <input class="input num" id="aqn" inputmode="numeric" value="1" autocomplete="off">
+      <div class="chips" style="margin-top:10px">${quick.map(n => `<button type="button" class="chip" data-n="${n}">${n === KODI ? '1 kodi (20)' : n === KODI * 2 ? '2 kodi (40)' : n}</button>`).join('')}</div>
+      <div class="muted sm" style="margin-top:8px">Stok ${p.stock}${p.price_kodi ? ` · kodian ${rp(p.price_kodi)} tiap 20 pcs` : ''}</div>
+      <div class="row" style="margin-top:14px"><button type="button" class="btn" id="aqno">Batal</button><button class="btn primary">Tambah</button></div></form>`);
+  const i = $('#aqn'); i.focus(); i.select();
+  $('#aqno').onclick = closeModal;
+  document.querySelectorAll('#aqf [data-n]').forEach(b => b.onclick = () => { i.value = b.dataset.n; i.focus(); });
+  $('#aqf').onsubmit = ev => { ev.preventDefault(); const n = parseInt(i.value.replace(/\D/g, ''), 10) || 0; if (n < 1) return i.focus(); closeModal(); addToCart(id, n); };
+}
+// Line pricing, mirroring the server (lib.js splitPrice): every full 20 pcs
+// at the kodian price, the rest at the normal price; a custom price (owner
+// only) covers the whole line. The server recomputes it at checkout.
+const KODI = 20;
+function linePricing(l) {
+  const p = prodById(l.id);
+  if (!p) return [];
+  if (l.price != null) return [{ qty: l.qty, price: l.price, tier: 'kustom' }];
+  const k = p.price_kodi > 0 ? Math.floor(l.qty / KODI) * KODI : 0;
+  const out = [];
+  if (k) out.push({ qty: k, price: p.price_kodi, tier: 'kodian' });
+  if (l.qty - k) out.push({ qty: l.qty - k, price: p.price, tier: 'normal' });
+  return out;
+}
+const lineTotal = l => linePricing(l).reduce((a, x) => a + x.qty * x.price, 0);
+// The owner's "Harga" button: automatic (normal/kodian) or a custom unit price.
+function openLinePrice(id) {
+  const l = S.cart.find(x => x.id === id), p = prodById(id);
+  if (!l || !p) return;
+  const custom = l.price != null;
+  openModal(`<h2>Harga satuan</h2><div class="muted" style="margin-bottom:10px">${esc(p.name)} · ${l.qty} pcs</div>
+    <form id="lpf" class="choice-list">
+      <label class="pick"><input type="radio" name="lp" value="auto" ${custom ? '' : 'checked'}><span><b>Otomatis</b><small>Normal ${rp(p.price)}${p.price_kodi ? ` · kodian ${rp(p.price_kodi)} tiap 20 pcs` : ''}</small></span></label>
+      <label class="pick"><input type="radio" name="lp" value="custom" ${custom ? 'checked' : ''}><span><b>Harga khusus</b><small>Berlaku untuk semua ${l.qty} pcs di baris ini</small></span></label>
+      <input class="input num" id="lpv" inputmode="numeric" placeholder="Harga per pcs" value="${custom ? l.price : ''}">
+      <div id="lperr"></div>
+      <div class="row" style="margin-top:14px"><button type="button" class="btn" id="lpno">Batal</button><button class="btn primary">Simpan</button></div></form>`);
+  const v = $('#lpv');
+  v.oninput = () => { document.querySelector('#lpf input[value=custom]').checked = true; };
+  $('#lpno').onclick = closeModal;
+  $('#lpf').onsubmit = ev => {
+    ev.preventDefault();
+    if (document.querySelector('#lpf input[name=lp]:checked').value === 'auto') { delete l.price; closeModal(); return cartChanged(); }
+    const n = parseInt(v.value.replace(/\D/g, ''), 10);
+    if (!n && n !== 0 || v.value.trim() === '') { $('#lperr').innerHTML = `<div class="err">Isi harga per pcs.</div>`; return v.focus(); }
+    if (p.hpp && n < p.hpp && !confirmInline('lperr', `Di bawah modal (HPP ${rp(p.hpp)}). Tekan Simpan lagi untuk tetap memakai harga ini.`)) return;
+    l.price = n; closeModal(); cartChanged();
+  };
 }
 function setQty(id, qty) {
   const p = prodById(id);
@@ -500,9 +593,9 @@ function resetSale() {
 }
 function cartChanged() { renderGrid(); renderCart(); schedulePreview(); }
 
-const localSubtotal = () => S.cart.reduce((a, l) => a + (prodById(l.id)?.price || 0) * l.qty, 0);
+const localSubtotal = () => S.cart.reduce((a, l) => a + lineTotal(l), 0);
 const cartBody = () => ({
-  items: S.cart.map(l => ({ product: l.id, qty: l.qty })),
+  items: S.cart.map(l => l.price != null ? { product: l.id, qty: l.qty, price: l.price } : { product: l.id, qty: l.qty }),
   customer: S.customer?.id || '', voucher_code: S.voucher.trim(),
   points_used: S.points || 0, discount: isManager() ? (S.discount || 0) : 0,
 });
@@ -539,12 +632,14 @@ function renderCart() {
         : `<b>Pelanggan umum</b><small>Ketuk untuk pilih / daftar member</small>`}</button>
       ${c ? `<button class="btn ghost sm" id="clrCust" aria-label="Hapus pelanggan">✕</button>` : ''}
     </div>
+    ${S.cart.length ? `<div class="cart-tools"><button class="btn ghost sm" id="cclear">Kosongkan</button><span id="clrmsg"></span></div>` : ''}
     <div class="lines">${S.cart.length ? S.cart.map(l => {
-      const p = prodById(l.id);
+      const p = prodById(l.id), parts = linePricing(l);
+      const how = parts.map(x => x.tier === 'kodian' ? `${x.qty / KODI} kodi × ${rp(x.price)}` : x.tier === 'kustom' ? `${rp(x.price)} harga khusus` : parts.length > 1 ? `${x.qty} × ${rp(x.price)}` : rp(x.price)).join(' + ');
       return `<div class="line">
-        <div><div class="n">${esc(p.name)}</div><div class="u num">${rp(p.price)}</div></div>
-        <div class="t num">${rp(p.price * l.qty)}</div>
-        <div class="u">${esc(p.sku)}</div>
+        <div><div class="n">${esc(p.name)}</div><div class="u num ${parts.some(x => x.tier !== 'normal') ? 'special' : ''}">${how}</div></div>
+        <div class="t num">${rp(lineTotal(l))}</div>
+        <div class="u">${esc(p.sku)}${isOwner() ? ` <button class="lp" data-price="${l.id}">Harga</button>` : ''}${!isOwner() && p.price_kodi && l.qty < KODI ? ` <span class="muted">· kodian mulai 20 pcs</span>` : ''}</div>
         <div class="qty">
           <button data-dec="${l.id}" aria-label="Kurangi">−</button>
           <input data-qty="${l.id}" value="${l.qty}" inputmode="numeric" aria-label="Jumlah">
@@ -567,6 +662,9 @@ function renderCart() {
   el.querySelectorAll('[data-inc]').forEach(b => b.onclick = () => addToCart(b.dataset.inc));
   el.querySelectorAll('[data-dec]').forEach(b => b.onclick = () => { const l = S.cart.find(x => x.id === b.dataset.dec); setQty(l.id, l.qty - 1); });
   el.querySelectorAll('[data-qty]').forEach(i => i.onchange = () => setQty(i.dataset.qty, i.value));
+  el.querySelectorAll('[data-price]').forEach(b => b.onclick = () => openLinePrice(b.dataset.price));
+  const clr = $('#cclear');
+  if (clr) clr.onclick = () => { if (!confirmInline('clrmsg', 'Tekan Kosongkan lagi untuk menghapus semua barang.')) return; resetSale(); renderCart(); renderGrid(); schedulePreview(); };
   const bind = (id, key, num) => { const i = $('#' + id); if (i) i.oninput = () => { S[key] = num ? (parseInt(i.value.replace(/\D/g, ''), 10) || 0) : i.value; schedulePreview(); }; };
   bind('vc', 'voucher'); bind('pt', 'points', true); bind('dc', 'discount', true);
   $('#pay').onclick = openPayment;
@@ -727,6 +825,7 @@ function openPayment() {
 }
 
 // ── receipt ─────────────────────────────────────────
+const TIER_NOTE = { kodian: 'kodian', kustom: 'harga khusus', retur: 'dikembalikan' };
 function receiptHtml(sale, items) {
   const st = S.settings, x = sale.expand || {};
   const lines = s => esc(s || '').split('\n').map(l => `<div class="c">${l || '&nbsp;'}</div>`).join('');
@@ -738,7 +837,8 @@ function receiptHtml(sale, items) {
     <div>${fmtTime(sale.created)} · ${esc(x.cashier?.name || x.cashier?.username || '')}</div>
     ${x.customer ? `<div>Member: ${esc(x.customer.name || x.customer.username)}</div>` : ''}
     <hr>
-    ${items.map(i => `<div>${esc(i.name)}</div><div class="r"><span>${i.qty} x ${i.price.toLocaleString('id-ID')}</span><span>${i.subtotal.toLocaleString('id-ID')}</span></div>`).join('')}
+    ${sale.kind === 'tukar' ? `<div><b>TUKAR BARANG</b>${x.ref_sale ? ' dari ' + esc(x.ref_sale.number) : ''}</div><hr>` : ''}
+    ${items.map(i => `<div>${esc(i.name)}${TIER_NOTE[i.tier] ? ` <small>(${TIER_NOTE[i.tier]})</small>` : ''}</div><div class="r"><span>${i.qty} x ${i.price.toLocaleString('id-ID')}</span><span>${i.subtotal.toLocaleString('id-ID')}</span></div>`).join('')}
     <hr>
     <div class="r"><span>Subtotal</span><span>${sale.subtotal.toLocaleString('id-ID')}</span></div>
     ${sale.discount ? `<div class="r"><span>Diskon</span><span>-${sale.discount.toLocaleString('id-ID')}</span></div>` : ''}
@@ -755,7 +855,8 @@ function receiptHtml(sale, items) {
 function receiptText(sale, items) {
   const st = S.settings;
   return [`*${st.store_name}*`, sale.number, fmtTime(sale.created), '',
-    ...items.map(i => `${i.name}\n  ${i.qty} x ${rp(i.price)} = ${rp(i.subtotal)}`), '',
+    sale.kind === 'tukar' ? 'Tukar barang' : '',
+    ...items.map(i => `${i.name}${TIER_NOTE[i.tier] ? ` (${TIER_NOTE[i.tier]})` : ''}\n  ${i.qty} x ${rp(i.price)} = ${rp(i.subtotal)}`), '',
     sale.discount ? `Diskon: -${rp(sale.discount)}` : '', `*Total: ${rp(sale.total)}*`,
     sale.status === 'piutang' ? `Sisa piutang: ${rp(sale.total - sale.paid)}` : '',
     sale.points_earned ? `Poin didapat: +${sale.points_earned}` : '', '', 'Terima kasih!'].filter((l, i, a) => l !== '' || a[i - 1] !== '').join('\n');
@@ -775,11 +876,13 @@ function showReceipt(sale, items, fresh) {
       <button class="btn" id="rprint">🖨 Cetak</button>
       ${cust?.phone ? `<a class="btn" id="rwa" target="_blank" rel="noopener" href="https://wa.me/${waNumber(cust.phone)}?text=${encodeURIComponent(receiptText(sale, items))}">WhatsApp</a>` : ''}
     </div>
+    ${role() !== 'pelanggan' && sale.status !== 'batal' && sale.kind !== 'tukar' && !fresh ? `<button class="btn block" id="rswap" style="margin-top:8px">Tukar barang</button>` : ''}
     ${isManager() && sale.status !== 'batal' && !fresh ? `<button class="btn danger block" id="rvoid" style="margin-top:8px">Batalkan transaksi</button>` : ''}
     <button class="btn primary block" id="rdone" style="margin-top:8px">${fresh ? 'Transaksi baru' : 'Tutup'}</button>`);
   $('#rprint').onclick = () => { $('#print').innerHTML = receiptHtml(sale, items); printAs('receipt'); };
   $('#rdone').onclick = () => { closeModal(); if (fresh) $('#q')?.focus(); };
   if ($('#rvoid')) $('#rvoid').onclick = () => openVoid(sale);
+  if ($('#rswap')) $('#rswap').onclick = () => openSwap(sale.id).catch(e => toast(e.message, true));
 }
 
 // ── transactions ────────────────────────────────────
@@ -789,6 +892,7 @@ async function viewTx() {
   $('#view').innerHTML = `
     <div class="row" style="max-width:420px;margin-bottom:12px">
       ${kasir ? `<div class="muted" style="align-self:center">Transaksi kamu hari ini</div>` : `<input class="input" type="date" id="td" value="${day}" max="${day}">`}
+      <button class="btn" id="tswap" style="flex:0 0 auto">Tukar barang</button>
     </div>
     <div id="tstats"></div>
     <div class="card" id="tlist"><div class="empty">Memuat…</div></div>`;
@@ -797,7 +901,7 @@ async function viewTx() {
     try {
       const r = await list('sales', {
         filter: `created >= "${wibStartUTC(day)}" && created < "${wibStartUTC(next)}"`,
-        sort: '-created', perPage: 200, expand: 'customer,cashier,payment_method' });
+        sort: '-created', perPage: 200, expand: 'customer,cashier,payment_method,ref_sale' });
       const live = r.items.filter(s => s.status !== 'batal');
       $('#tstats').innerHTML = `<div class="stats">
         <div class="card stat"><small>Transaksi</small><b class="num">${live.length}</b></div>
@@ -806,7 +910,7 @@ async function viewTx() {
       </div>`;
       $('#tlist').innerHTML = r.items.length ? r.items.map(s => `
         <button class="tx" data-s="${s.id}">
-          <span><b class="num">${esc(s.number)}</b> <span class="badge ${s.status === 'lunas' ? 'ok' : s.status === 'batal' ? 'bad' : 'warn'}">${s.status}</span></span>
+          <span><b class="num">${esc(s.number)}</b> <span class="badge ${s.status === 'lunas' ? 'ok' : s.status === 'batal' ? 'bad' : 'warn'}">${s.status}</span>${s.kind === 'tukar' ? ` <span class="badge">tukar${s.expand?.ref_sale ? ' · ' + esc(s.expand.ref_sale.number) : ''}</span>` : ''}</span>
           <b class="num">${rp(s.total)}</b>
           <small class="muted">${fmtTime(s.created)} · ${esc(s.expand?.customer?.name || 'Umum')}${kasir ? '' : ' · ' + esc(s.expand?.cashier?.name || s.expand?.cashier?.username || '')}</small>
           <small class="muted">${esc(s.expand?.payment_method?.name || '')}</small>
@@ -821,6 +925,7 @@ async function viewTx() {
     } catch (e) { $('#tlist').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
   };
   if ($('#td')) $('#td').onchange = () => { day = $('#td').value || wibToday(); load(); };
+  $('#tswap').onclick = askSwap;
   S.reloadTx = load;
   load();
 }
@@ -892,7 +997,7 @@ async function viewProducts() {
         <td data-l="Kategori">${esc(catName(p.category))}</td>
         <td data-l="Stok" class="r num">${low ? `<span class="badge warn">${p.stock}</span>` : p.stock.toLocaleString('id-ID')}</td>
         <td data-l="HPP" class="r num">${rp(p.hpp)}</td>
-        <td data-l="Harga jual" class="r num"><b>${rp(p.price)}</b></td>
+        <td data-l="Harga jual" class="r num"><b>${rp(p.price)}</b>${p.price_kodi ? `<div class="muted sm">kodian ${rp(p.price_kodi)}</div>` : ''}</td>
         <td data-l="Laba" class="r num" style="color:${margin < 0 ? 'var(--bad)' : 'var(--ok)'}"><span>${rp(margin)}${p.price ? ` <small class="muted">${Math.round(margin / p.price * 100)}%</small>` : ''}</span></td>
         <td class="r"><button class="btn sm" data-edit="${p.id}">Ubah</button> <button class="btn sm" data-stk="${p.id}">Stok</button></td>
       </tr>`;
@@ -935,6 +1040,8 @@ function editProduct(p, cats, all, reload) {
         <div><label class="f">HPP (modal)</label><input class="input num" id="eh" inputmode="numeric" value="${p.hpp || ''}"></div>
         <div><label class="f">Harga jual</label><input class="input num" id="ep" inputmode="numeric" required value="${p.price || ''}"></div>
       </div>
+      <label class="f">Harga kodian per pcs <small>(berlaku tiap 20 pcs; kosongkan kalau tidak ada)</small></label>
+      <input class="input num" id="ek" inputmode="numeric" value="${p.price_kodi || ''}" placeholder="mis. ${p.price ? Math.max(0, p.price - 1000) : 41000}">
       <div id="emargin" class="muted" style="font-size:14px;margin-top:6px"></div>
       <div class="row">
         <div><label class="f">Peringatan stok di bawah</label><input class="input num" id="em" inputmode="numeric" value="${p.min_stock}"></div>
@@ -969,10 +1076,12 @@ function editProduct(p, cats, all, reload) {
     const body = {
       name: $('#en').value.trim(), category: $('#ec').value, unit: $('#eu').value.trim(),
       sku: $('#es').value.trim().toUpperCase(), barcode: $('#eb').value.trim(),
-      hpp: num('eh'), price: num('ep'), min_stock: num('em'), active: $('#ea').checked,
+      hpp: num('eh'), price: num('ep'), price_kodi: num('ek'), min_stock: num('em'), active: $('#ea').checked,
       hide_online: $('#eho').checked, weight: num('ew'), description: $('#ed').value.trim(),
     };
     if (body.price < body.hpp && !confirmInline('eerr', 'Harga jual di bawah HPP — produk ini rugi. Tekan Simpan lagi untuk tetap menyimpan.')) return;
+    if (body.price_kodi && body.price_kodi >= body.price) return $('#eerr').innerHTML = `<div class="err">Harga kodian harus lebih murah dari harga jual.</div>`;
+    if (body.price_kodi && body.price_kodi < body.hpp && !confirmInline('eerr', 'Harga kodian di bawah HPP. Tekan Simpan lagi untuk tetap menyimpan.')) return;
     $('#eok').disabled = true;
     try {
       const saved = await api(`/api/collections/products/records${isNew ? '' : '/' + p.id}`, { method: isNew ? 'POST' : 'PATCH', body });
@@ -1124,6 +1233,12 @@ function presetRange(k) {
   const t = wibToday(), [y, m] = t.split('-').map(Number);
   const first = (yy, mm) => `${yy}-${String(mm).padStart(2, '0')}-01`;
   if (k === 'today') return [t, t];
+  if (k === 'yesterday') return [addDays(t, -1), addDays(t, -1)];
+  // weeks start on Monday
+  const dow = (new Date(t + 'T00:00:00Z').getUTCDay() + 6) % 7;
+  if (k === 'week') return [addDays(t, -dow), t];
+  if (k === 'lastweek') return [addDays(t, -dow - 7), addDays(t, -dow - 1)];
+  if (k === 'lastyear') return [`${y - 1}-01-01`, `${y - 1}-12-31`];
   if (k === '7d') return [addDays(t, -6), t];
   if (k === 'month') return [first(y, m), t];
   if (k === 'lastmonth') { const pm = m === 1 ? 12 : m - 1, py = m === 1 ? y - 1 : y; return [first(py, pm), addDays(first(y, m), -1)]; }
@@ -1136,7 +1251,8 @@ function presetRange(k) {
 const fd = d => new Date(d + 'T00:00:00Z').toLocaleDateString('id-ID', { timeZone: 'UTC', day: 'numeric', month: 'short', year: 'numeric' });
 // Renders preset buttons + two date inputs into `el`; calls onChange(from, to).
 function rangePicker(el, state, onChange) {
-  const presets = [['today', 'Hari ini'], ['7d', '7 hari'], ['month', 'Bulan ini'], ['lastmonth', 'Bulan lalu'], ['1m', '1 bulan'], ['3m', '3 bulan'], ['6m', '6 bulan'], ['year', 'Tahun ini']];
+  const presets = [['today', 'Hari ini'], ['yesterday', 'Kemarin'], ['week', 'Minggu ini'], ['lastweek', 'Minggu lalu'], ['month', 'Bulan ini'], ['lastmonth', 'Bulan lalu'],
+    ['year', 'Tahun ini'], ['lastyear', 'Tahun lalu'], ['1m', '1 bulan'], ['3m', '3 bulan'], ['6m', '6 bulan']];
   el.innerHTML = `<div class="toolbar range">
     <div class="chips" style="padding:0">${presets.map(([k, l]) => `<button class="chip ${state.preset === k ? 'on' : ''}" data-p="${k}">${l}</button>`).join('')}</div>
     <input class="input" type="date" id="rf" value="${state.from}"><input class="input" type="date" id="rt" value="${state.to}">
@@ -1173,6 +1289,172 @@ function downloadCSV(name, rows) {
 function printReport(title, html) {
   $('#print').innerHTML = `<div class="report-print"><h2>${esc(S.settings.store_name)} — ${esc(title)}</h2>${html}</div>`;
   printAs('a4');
+}
+
+// ── tukar barang (item swap) ────────────────────────
+// Swaps only, per Mas Alin: returned items go back on the shelf, new items
+// leave it, the buyer pays any difference; never money back. The server
+// (/api/pos/swap) decides prices and limits; this screen previews them.
+function askSwap() {
+  openModal(`<h2>Tukar barang</h2>
+    <form id="swf"><label class="f" for="swn">Nomor transaksi di struk</label>
+      <input class="input num" id="swn" placeholder="mis. TRX-261006-0001" autocapitalize="characters" autocomplete="off" required>
+      <div id="swerr"></div>
+      <div class="row" style="margin-top:14px"><button type="button" class="btn" id="swno">Batal</button><button class="btn primary">Cari</button></div></form>`);
+  $('#swn').focus();
+  $('#swno').onclick = closeModal;
+  $('#swf').onsubmit = async ev => {
+    ev.preventDefault();
+    try { await openSwap($('#swn').value.trim()); }
+    catch (e) { $('#swerr').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  };
+}
+async function openSwap(key) {
+  const orig = await api(`/api/pos/swap/${encodeURIComponent(key)}`);
+  if (!S.products?.length || !S.methods?.length) await loadCatalog();
+  const back = Object.fromEntries(orig.items.map(i => [i.product, 0]));
+  const add = [];
+  let q = '';
+  const draw = () => {
+    const backVal = orig.items.reduce((a, i) => a + i.price * back[i.product], 0);
+    const newVal = add.reduce((a, l) => a + lineTotal(l), 0);
+    const diff = newVal - backVal;
+    const hits = q.trim().length >= 2 ? S.products.filter(p => (p.name + ' ' + p.sku + ' ' + (p.barcode || '')).toLowerCase().includes(q.trim().toLowerCase())).slice(0, 6) : [];
+    openModal(`
+      <h2>Tukar barang <span class="num muted" style="font-size:15px">${esc(orig.number)}</span></h2>
+      <div class="muted">${fmtTime(orig.created)} · ${esc(orig.customer || 'Umum')} · total ${rp(orig.total)}</div>
+      <h3 class="sec">1. Barang yang dikembalikan</h3>
+      ${orig.items.map(i => `<div class="swline ${i.left ? '' : 'off'}">
+        <div><b>${esc(i.name)}</b><div class="muted sm">${rp(i.price)}/pcs · dibeli ${i.sold}${i.returned ? `, sudah ditukar ${i.returned}` : ''}</div></div>
+        ${i.left ? `<div class="qty"><button type="button" data-bd="${i.product}" aria-label="Kurangi">−</button><input data-bq="${i.product}" value="${back[i.product]}" inputmode="numeric" aria-label="Jumlah dikembalikan"><button type="button" data-bi="${i.product}" aria-label="Tambah">+</button></div>` : `<span class="muted sm">habis ditukar</span>`}
+      </div>`).join('')}
+      <h3 class="sec">2. Barang baru</h3>
+      <input class="input" id="swq" placeholder="Cari nama / SKU / scan barcode…" value="${esc(q)}" autocomplete="off">
+      ${hits.length ? `<div class="swhits">${hits.map(p => `<button type="button" data-add="${p.id}" ${p.stock ? '' : 'disabled'}><b>${esc(p.name)}</b><span class="muted sm">${rp(p.price)} · stok ${p.stock}</span></button>`).join('')}</div>` : ''}
+      ${add.map(l => { const p = prodById(l.id); return `<div class="swline">
+        <div><b>${esc(p.name)}</b><div class="muted sm">${linePricing(l).map(x => x.tier === 'kodian' ? `${x.qty / KODI} kodi × ${rp(x.price)}` : `${x.qty} × ${rp(x.price)}`).join(' + ')}</div></div>
+        <div class="qty"><button type="button" data-nd="${l.id}" aria-label="Kurangi">−</button><input data-nq="${l.id}" value="${l.qty}" inputmode="numeric" aria-label="Jumlah barang baru"><button type="button" data-ni="${l.id}" aria-label="Tambah">+</button></div>
+      </div>`; }).join('') || `<div class="muted sm">Belum ada barang baru.</div>`}
+      <h3 class="sec">3. Selisih</h3>
+      <div class="sum"><span>Barang dikembalikan</span><span class="num">${rp(backVal)}</span></div>
+      <div class="sum"><span>Barang baru</span><span class="num">${rp(newVal)}</span></div>
+      <div class="sum total"><span>${diff >= 0 ? 'Pembeli bayar' : 'Kurang'}</span><span class="num">${rp(Math.abs(diff))}</span></div>
+      ${diff < 0 ? `<div class="err">Barang baru lebih murah. Tukar hanya untuk barang senilai atau lebih mahal, uang tidak dikembalikan. Tambah barang atau pilih yang lain.</div>` : ''}
+      ${diff > 0 ? `<div class="row" style="margin-top:8px"><select class="input" id="swm">${S.methods.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select>
+        <input class="input num" id="swp" inputmode="numeric" placeholder="Uang diterima" value="${diff}"></div>` : ''}
+      <input class="input" id="swnote" placeholder="Catatan (mis. ukuran kekecilan)" maxlength="120" style="margin-top:8px">
+      <div id="swerr2"></div>
+      <div class="row" style="margin-top:14px"><button type="button" class="btn" id="swcancel">Batal</button>
+        <button type="button" class="btn primary" id="swok" ${backVal && newVal && diff >= 0 ? '' : 'disabled'}>Simpan tukar</button></div>`);
+    const lim = id => orig.items.find(i => i.product === id).left;
+    const setBack = (id, n) => { back[id] = Math.max(0, Math.min(lim(id), parseInt(n, 10) || 0)); draw(); };
+    const setNew = (id, n) => { const l = add.find(x => x.id === id); const p = prodById(id); l.qty = Math.max(0, Math.min(p.stock, parseInt(n, 10) || 0)); if (!l.qty) add.splice(add.indexOf(l), 1); draw(); };
+    document.querySelectorAll('[data-bi]').forEach(b => b.onclick = () => setBack(b.dataset.bi, back[b.dataset.bi] + 1));
+    document.querySelectorAll('[data-bd]').forEach(b => b.onclick = () => setBack(b.dataset.bd, back[b.dataset.bd] - 1));
+    document.querySelectorAll('[data-bq]').forEach(i => i.onchange = () => setBack(i.dataset.bq, i.value));
+    document.querySelectorAll('[data-ni]').forEach(b => b.onclick = () => setNew(b.dataset.ni, add.find(x => x.id === b.dataset.ni).qty + 1));
+    document.querySelectorAll('[data-nd]').forEach(b => b.onclick = () => setNew(b.dataset.nd, add.find(x => x.id === b.dataset.nd).qty - 1));
+    document.querySelectorAll('[data-nq]').forEach(i => i.onchange = () => setNew(i.dataset.nq, i.value));
+    document.querySelectorAll('[data-add]').forEach(b => b.onclick = () => { const l = add.find(x => x.id === b.dataset.add); if (l) l.qty++; else add.push({ id: b.dataset.add, qty: 1 }); q = ''; draw(); });
+    const sq = $('#swq');
+    sq.oninput = () => { q = sq.value; clearTimeout(sq.t); sq.t = setTimeout(() => { draw(); const n = $('#swq'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 200); };
+    sq.onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); const p = S.products.find(x => x.barcode && x.barcode === sq.value.trim() || x.sku === sq.value.trim().toUpperCase()); if (p) { const l = add.find(x => x.id === p.id); if (l) l.qty++; else add.push({ id: p.id, qty: 1 }); q = ''; draw(); } } };
+    $('#swcancel').onclick = closeModal;
+    $('#swok').onclick = async () => {
+      const b = $('#swok'); b.disabled = true;
+      try {
+        const r = await api('/api/pos/swap', { method: 'POST', body: {
+          sale: orig.id, returns: orig.items.filter(i => back[i.product]).map(i => ({ product: i.product, qty: back[i.product] })),
+          items: add.map(l => ({ product: l.id, qty: l.qty })),
+          payment_method: $('#swm')?.value || '', paid: parseInt(($('#swp')?.value || '0').replace(/\D/g, ''), 10) || 0,
+          note: $('#swnote').value.trim() } });
+        await loadCatalog();
+        showReceipt(r.sale, r.items, true);
+        S.reloadTx?.();
+      } catch (e) { $('#swerr2').innerHTML = `<div class="err">${esc(e.message)}</div>`; b.disabled = false; }
+    };
+  };
+  draw();
+}
+
+// ── laporan: 8 report tables, Excel (.xlsx) and PDF ─
+const REP_TYPES = [['ringkasan', 'Ringkasan'], ['penjualan', 'Penjualan'], ['produk', 'Produk'], ['kategori', 'Kategori'], ['pelanggan', 'Pelanggan'],
+  ['karyawan', 'Karyawan'], ['piutang', 'Piutang'], ['pengeluaran', 'Pengeluaran'], ['retur', 'Tukar barang']];
+const repCell = (c, v) => c.type === 'rp' ? rp(v) : c.type === 'num' ? Number(v || 0).toLocaleString('id-ID') : c.type === 'date' ? (v ? fmtTime(v) : '') : c.type === 'day' ? (v ? fd(String(v).slice(0, 10)) : '') : String(v ?? '');
+async function viewReportTable(el, type) {
+  el.innerHTML = `<div class="empty">Memuat…</div>`;
+  let r;
+  try { r = await api(`/api/reports/table?type=${type}&from=${RS.from}&to=${RS.to}`); }
+  catch (e) { el.innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
+  const cols = r.columns, num = c => c.type === 'rp' || c.type === 'num';
+  const period = RS.from === RS.to ? fd(RS.from) : `${fd(RS.from)} – ${fd(RS.to)}`;
+  const table = `<table class="tbl"><thead><tr>${cols.map(c => `<th class="${num(c) ? 'r' : ''}">${esc(c.label)}</th>`).join('')}</tr></thead><tbody>
+    ${r.rows.length ? r.rows.map(x => `<tr>${cols.map(c => `<td data-l="${esc(c.label)}" class="${num(c) ? 'r num' : ''}">${esc(repCell(c, x[c.key]))}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${cols.length}" class="empty">Tidak ada data di periode ini.</td></tr>`}
+    ${r.rows.length ? `<tr class="totrow">${cols.map((c, i) => `<td data-l="${esc(c.label)}" class="${num(c) ? 'r num' : ''}"><b>${i === 0 ? 'Total' : num(c) ? esc(repCell(c, r.totals[c.key])) : ''}</b></td>`).join('')}</tr>` : ''}
+    </tbody></table>`;
+  el.innerHTML = `<div class="toolbar"><div class="muted" style="flex:1;align-self:center">${esc(r.title)} · ${period} · ${r.rows.length} baris</div>
+      <button class="btn" id="rxl">⬇ Excel</button><button class="btn" id="rpdf">⬇ PDF</button></div>
+    <div class="card tblwrap">${table}</div>`;
+  const fname = `${r.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}_${RS.from}_${RS.to}`;
+  $('#rxl').onclick = () => {
+    const head = cols.map(c => c.label);
+    const body = r.rows.map(x => cols.map(c => num(c) ? Number(x[c.key] || 0) : repCell(c, x[c.key])));
+    const tot = cols.map((c, i) => i === 0 ? 'Total' : num(c) ? Number(r.totals[c.key] || 0) : '');
+    downloadXLSX(fname + '.xlsx', r.title, [[`${S.settings.store_name} — ${r.title}`], [`Periode ${period}`], [], head, ...body, ...(r.rows.length ? [tot] : [])], cols.map(c => c.type === 'rp'));
+  };
+  $('#rpdf').onclick = () => { toast('Pilih "Simpan sebagai PDF" di jendela cetak.'); printReport(`${r.title} ${period}`, table); };
+}
+
+// Minimal .xlsx writer: one sheet, inline strings, numbers as numbers, rupiah
+// columns formatted #,##0. Files are zipped uncompressed ("stored"), which
+// Excel, LibreOffice and Google Sheets all open.
+function downloadXLSX(name, sheet, rows, rpCols) {
+  const x = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+  const col = i => { let s = ''; i++; while (i) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; };
+  const widths = [];
+  rows.forEach((r, ri) => { if (ri > 2) r.forEach((v, i) => { widths[i] = Math.min(50, Math.max(widths[i] || 8, String(typeof v === 'number' ? v.toLocaleString('id-ID') : v ?? '').length + 2)); }); });
+  const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData>${rows.map((r, ri) =>
+    `<row r="${ri + 1}">${r.map((v, ci) => v === '' || v == null ? '' : typeof v === 'number'
+      ? `<c r="${col(ci)}${ri + 1}"${rpCols[ci] ? ' s="1"' : ''}><v>${v}</v></c>`
+      : `<c r="${col(ci)}${ri + 1}" t="inlineStr"${ri === 3 || ri === 0 ? ' s="2"' : ''}><is><t xml:space="preserve">${x(v)}</t></is></c>`).join('')}</row>`).join('')}</sheetData></worksheet>`;
+  const files = {
+    '[Content_Types].xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`,
+    '_rels/.rels': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+    'xl/workbook.xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${x(sheet.slice(0, 31).replace(/[\\/?*[\]:]/g, ' '))}" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
+    'xl/styles.xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="3"><xf/><xf numFmtId="164" applyNumberFormat="1"/><xf fontId="1" applyFont="1"/></cellXfs></styleSheet>`,
+    'xl/worksheets/sheet1.xml': sheetXml,
+  };
+  const blob = zipStore(files);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+// ZIP with "stored" entries (no compression): local headers, data, central directory.
+function zipStore(files) {
+  const enc = new TextEncoder(), crcT = zipStore.t || (zipStore.t = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; }));
+  const crc32 = b => { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = crcT[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+  const parts = [], central = [];
+  let off = 0;
+  for (const [n, s] of Object.entries(files)) {
+    const name = enc.encode(n), data = enc.encode(s), crc = crc32(data);
+    const h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);
+    h.setUint32(14, crc, true); h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, name.length, true);
+    parts.push(h, name, data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true);
+    c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, name.length, true); c.setUint32(42, off, true);
+    central.push(c, name);
+    off += 30 + name.length + data.length;
+  }
+  const size = central.reduce((a, p) => a + (p.byteLength ?? p.length), 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, Object.keys(files).length, true); end.setUint16(10, Object.keys(files).length, true);
+  end.setUint32(12, size, true); end.setUint32(16, off, true);
+  return new Blob([...parts, ...central, end], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
 // ── dasbor (owner/admin) ────────────────────────────
@@ -1421,11 +1703,14 @@ async function finCashbook(el) {
 }
 
 // ── laporan penjualan (owner/admin) ─────────────────
-const RS = { from: presetRange('month')[0], to: wibToday(), preset: 'month' };
+const RS = { from: presetRange('month')[0], to: wibToday(), preset: 'month', type: 'ringkasan' };
 function viewReports() {
-  $('#view').innerHTML = `<div id="rrange"></div><div id="rbody"></div>`;
+  $('#view').innerHTML = `<div id="rsub"></div><div id="rrange"></div><div id="rbody"></div>`;
+  subTabs($('#rsub'), REP_TYPES, RS, 'type', () => load());
   const load = async () => {
-    const el = $('#rbody'); el.innerHTML = `<div class="empty">Memuat…</div>`;
+    const el = $('#rbody');
+    if (RS.type !== 'ringkasan') return viewReportTable(el, RS.type);
+    el.innerHTML = `<div class="empty">Memuat…</div>`;
     try {
       const r = await api(`/api/reports/sales?from=${RS.from}&to=${RS.to}`);
       const tot = r.perDay.reduce((a, d) => ({ count: a.count + d.count, total: a.total + d.total, discount: a.discount + d.discount }), { count: 0, total: 0, discount: 0 });
