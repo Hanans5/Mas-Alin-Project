@@ -234,4 +234,18 @@ function findSale(tx, key) {
   throw new NotFoundError("Transaksi tidak ditemukan.");
 }
 
-module.exports = { returnable, findSale, idr, priceCart, splitPrice, KODI, wibDate, wibRange, role, requireRole, int, moveStock, nextSaleNumber, voucherDiscount, settings, query };
+// The assistant who served the sale (one shared kasir login, so it's picked
+// per sale). Required as soon as any karyawan is active.
+function pickEmployee(tx, id) {
+  const active = query(tx, "SELECT COUNT(*) AS n FROM employees WHERE active = 1", {}, { n: 0 })[0].n;
+  if (!id) {
+    if (active) throw new BadRequestError("Pilih karyawan yang melayani.");
+    return "";
+  }
+  let emp;
+  try { emp = tx.findRecordById("employees", id); } catch (_) { throw new BadRequestError("Karyawan tidak ditemukan."); }
+  if (!emp.getBool("active")) throw new BadRequestError(`${emp.getString("name")} sudah tidak aktif.`);
+  return emp.id;
+}
+
+module.exports = { pickEmployee, returnable, findSale, idr, priceCart, splitPrice, KODI, wibDate, wibRange, role, requireRole, int, moveStock, nextSaleNumber, voucherDiscount, settings, query };

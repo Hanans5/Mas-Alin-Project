@@ -9,6 +9,7 @@
 //   discount?: rupiah                manual discount — owner/admin only
 //   points_used?: int                redeem the customer's points
 //   payment_method: id
+//   employee: id                     karyawan who served (required once any is active)
 //   paid: rupiah                     what was handed over now
 //   credit?: bool                    true = the unpaid rest becomes piutang
 //   due_date?: "YYYY-MM-DD"          for piutang
@@ -25,6 +26,7 @@ routerAdd("POST", "/api/pos/checkout", (e) => {
     let pm;
     try { pm = tx.findRecordById("payment_methods", b.payment_method); } catch (_) { throw new BadRequestError("Pilih metode pembayaran."); }
     if (!pm.getBool("active")) throw new BadRequestError("Metode pembayaran tidak aktif.");
+    const employee = L.pickEmployee(tx, b.employee);
 
     const handed = L.int(b.paid || 0, "Bayar");
     if (handed < 0) throw new BadRequestError("Bayar tidak boleh minus.");
@@ -46,7 +48,7 @@ routerAdd("POST", "/api/pos/checkout", (e) => {
     sale.load({
       number: L.nextSaleNumber(tx), cashier: e.auth.id, customer: customer ? customer.id : "",
       subtotal, discount, voucher: voucher ? voucher.id : "", points_used: pointsUsed,
-      total, paid, change, payment_method: pm.id, status, points_earned: earned, kind: "jual",
+      total, paid, change, payment_method: pm.id, status, points_earned: earned, kind: "jual", employee,
       note: String(b.note || "").slice(0, 300),
     });
     tx.save(sale);
@@ -76,7 +78,7 @@ routerAdd("POST", "/api/pos/checkout", (e) => {
   });
 
   const sale = e.app.findRecordById("sales", saleId);
-  e.app.expandRecord(sale, ["payment_method", "customer", "cashier"], null);
+  e.app.expandRecord(sale, ["payment_method", "customer", "cashier", "employee"], null);
   const items2 = e.app.findRecordsByFilter("sale_items", "sale = {:s}", "created", 0, 0, { s: saleId });
   return e.json(200, { sale, items: items2 });
 }, $apis.requireAuth("users"));
@@ -167,7 +169,7 @@ routerAdd("GET", "/api/pos/swap/{key}", (e) => {
 }, $apis.requireAuth("users"));
 
 // POST /api/pos/swap — body: { sale, returns:[{product, qty}], items:[{product, qty, price?}],
-//   payment_method?, paid?, note? }
+//   payment_method?, paid?, note?, employee }
 routerAdd("POST", "/api/pos/swap", (e) => {
   const L = require(`${__hooks}/lib.js`);
   L.requireRole(e, ["owner", "admin", "kasir"]);
@@ -192,6 +194,7 @@ routerAdd("POST", "/api/pos/swap", (e) => {
       backValue += c.price * q;
     }
     if (!back.length) throw new BadRequestError("Pilih barang yang dikembalikan.");
+    const employee = L.pickEmployee(tx, b.employee);
 
     const cart = L.priceCart(tx, e, { items: b.items });
     const diff = cart.subtotal - backValue;
@@ -208,7 +211,7 @@ routerAdd("POST", "/api/pos/swap", (e) => {
     sale.load({
       number: L.nextSaleNumber(tx), cashier: e.auth.id, customer: orig.getString("customer"),
       subtotal: diff, discount: 0, points_used: 0, total: diff, paid: diff, change: diff ? handed - diff : 0,
-      payment_method: pm ? pm.id : "", status: "lunas", points_earned: 0, kind: "tukar", ref_sale: orig.id,
+      payment_method: pm ? pm.id : "", status: "lunas", points_earned: 0, kind: "tukar", ref_sale: orig.id, employee,
       note: (`Tukar dari ${orig.getString("number")}` + (b.note ? " | " + String(b.note) : "")).slice(0, 300),
     });
     tx.save(sale);
@@ -229,7 +232,7 @@ routerAdd("POST", "/api/pos/swap", (e) => {
     }
   });
   const sale = e.app.findRecordById("sales", saleId);
-  e.app.expandRecord(sale, ["payment_method", "customer", "cashier", "ref_sale"], null);
+  e.app.expandRecord(sale, ["payment_method", "customer", "cashier", "ref_sale", "employee"], null);
   const items2 = e.app.findRecordsByFilter("sale_items", "sale = {:s}", "created", 0, 0, { s: saleId });
   return e.json(200, { sale, items: items2 });
 }, $apis.requireAuth("users"));

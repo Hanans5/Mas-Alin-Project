@@ -6,7 +6,11 @@ const PB = process.env.PB || "http://127.0.0.1:8090";
 const run = Date.now().toString(36);
 let failures = 0;
 
+// The shop picks a karyawan on every sale once any is active, so checkouts
+// in this test are credited to a test karyawan (EMP) unless a body says otherwise.
+let EMP = "";
 async function api(token, method, path, body) {
+  if (EMP && path === "/api/pos/checkout" && body && !("employee" in body)) body = { ...body, employee: EMP };
   const r = await fetch(PB + path, {
     method,
     headers: { "Content-Type": "application/json", ...(token ? { Authorization: token } : {}) },
@@ -71,8 +75,16 @@ check("kasir cannot move stock", kasirMove.status === 403, kasirMove.status);
 const methods = (await api(K, "GET", "/api/collections/payment_methods/records")).body.items;
 const tunai = methods.find((m) => m.name === "Tunai").id;
 
+const emp = await api(A, "POST", "/api/collections/employees/records", { name: "Uji karyawan " + run, active: true });
+check("admin adds a karyawan", emp.status === 200, emp.body);
+const empList = await api(K, "GET", "/api/collections/employees/records?filter=active%3Dtrue");
+check("kasir can read the karyawan list", empList.status === 200 && empList.body.items.some((x) => x.id === emp.body.id), empList.status);
+const noEmp = await api(K, "POST", "/api/pos/checkout", { items: [{ product: pid, qty: 1 }], payment_method: tunai, paid: 62000, employee: "" });
+check("sale without karyawan refused", noEmp.status === 400, noEmp.body);
+EMP = emp.body.id;
 const sale1 = await api(K, "POST", "/api/pos/checkout", { items: [{ product: pid, qty: 2 }], customer: custId, payment_method: tunai, paid: 130000 });
 check("kasir checkout 2 × 62.000", sale1.status === 200 && sale1.body.sale.total === 124000 && sale1.body.sale.change === 6000, sale1.body);
+check("sale credited to the karyawan", sale1.body.sale?.employee === EMP, sale1.body.sale?.employee);
 check("points earned 12 (1 per 10.000)", sale1.body.sale?.points_earned === 12, sale1.body.sale);
 const fakePrice = await api(K, "POST", "/api/pos/checkout", { items: [{ product: pid, qty: 1, price: 1 }], payment_method: tunai, paid: 1 });
 check("kasir cannot set a custom price", fakePrice.status === 403, fakePrice.body);
@@ -151,6 +163,8 @@ for (const u of ["alin", "admin", "kasir", "budi"]) {
   const rec = (await api(su, "GET", `/api/collections/users/records?filter=${encodeURIComponent(`username="${u + run}"`)}`)).body.items?.[0];
   if (rec) await api(su, "PATCH", `/api/collections/users/records/${rec.id}`, { disabled: true });
 }
+
+if (EMP) await api(su, "PATCH", `/api/collections/employees/records/${EMP}`, { active: false });
 
 console.log(failures ? `\n${failures} FAILED` : "\nALL PASSED");
 process.exit(failures ? 1 : 0);

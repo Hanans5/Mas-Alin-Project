@@ -184,6 +184,8 @@ h3.sec{margin:18px 0 8px;font-size:15px}
 .subtabs button{border:0;background:none;padding:10px 14px;font-weight:700;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;min-height:44px}
 .subtabs button.on{color:var(--accent);border-bottom-color:var(--accent)}
 .link{border:0;background:none;padding:0;color:var(--accent);font-weight:700;text-decoration:underline;text-underline-offset:3px;min-height:0}
+.input.emp{margin:8px 12px 2px;width:calc(100% - 24px);font-weight:600}
+.input.emp.need{border-color:var(--warn);background:var(--warn-soft)}
 .swline{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
 .swline.off{opacity:.5}
 .swline .qty{flex:0 0 auto}
@@ -443,6 +445,8 @@ async function loadCatalog() {
     list('payment_methods', { filter: 'active = true', sort: 'created' }),
   ]);
   S.products = p.items; S.categories = c.items; S.methods = m.items;
+  // Karyawan who can be credited with a sale (one shared kasir login).
+  try { S.employees = (await list('employees', { filter: 'active = true', sort: 'name', fields: 'id,name' })).items; } catch (_) { S.employees = []; }
 }
 const prodById = id => S.products.find(p => p.id === id);
 
@@ -589,7 +593,7 @@ function setQty(id, qty) {
   cartChanged();
 }
 function resetSale() {
-  S.cart = []; S.customer = null; S.voucher = ''; S.points = 0; S.discount = 0; S.preview = null; S.previewErr = '';
+  S.cart = []; S.customer = null; S.voucher = ''; S.points = 0; S.discount = 0; S.preview = null; S.previewErr = ''; S.employee = '';
 }
 function cartChanged() { renderGrid(); renderCart(); schedulePreview(); }
 
@@ -597,7 +601,7 @@ const localSubtotal = () => S.cart.reduce((a, l) => a + lineTotal(l), 0);
 const cartBody = () => ({
   items: S.cart.map(l => l.price != null ? { product: l.id, qty: l.qty, price: l.price } : { product: l.id, qty: l.qty }),
   customer: S.customer?.id || '', voucher_code: S.voucher.trim(),
-  points_used: S.points || 0, discount: isManager() ? (S.discount || 0) : 0,
+  points_used: S.points || 0, discount: isManager() ? (S.discount || 0) : 0, employee: S.employee || '',
 });
 
 // Ask the server for the real totals whenever something that affects them
@@ -632,6 +636,7 @@ function renderCart() {
         : `<b>Pelanggan umum</b><small>Ketuk untuk pilih / daftar member</small>`}</button>
       ${c ? `<button class="btn ghost sm" id="clrCust" aria-label="Hapus pelanggan">✕</button>` : ''}
     </div>
+    ${S.employees?.length ? `<select class="input emp ${S.employee ? '' : 'need'}" id="emp" aria-label="Karyawan yang melayani"><option value="">Pilih karyawan yang melayani…</option>${S.employees.map(x => `<option value="${x.id}" ${S.employee === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : ''}
     ${S.cart.length ? `<div class="cart-tools"><button class="btn ghost sm" id="cclear">Kosongkan</button><span id="clrmsg"></span></div>` : ''}
     <div class="lines">${S.cart.length ? S.cart.map(l => {
       const p = prodById(l.id), parts = linePricing(l);
@@ -663,6 +668,7 @@ function renderCart() {
   el.querySelectorAll('[data-dec]').forEach(b => b.onclick = () => { const l = S.cart.find(x => x.id === b.dataset.dec); setQty(l.id, l.qty - 1); });
   el.querySelectorAll('[data-qty]').forEach(i => i.onchange = () => setQty(i.dataset.qty, i.value));
   el.querySelectorAll('[data-price]').forEach(b => b.onclick = () => openLinePrice(b.dataset.price));
+  if ($('#emp')) $('#emp').onchange = () => { S.employee = $('#emp').value; $('#emp').classList.toggle('need', !S.employee); renderTotals(); };
   const clr = $('#cclear');
   if (clr) clr.onclick = () => { if (!confirmInline('clrmsg', 'Tekan Kosongkan lagi untuk menghapus semua barang.')) return; resetSale(); renderCart(); renderGrid(); schedulePreview(); };
   const bind = (id, key, num) => { const i = $('#' + id); if (i) i.oninput = () => { S[key] = num ? (parseInt(i.value.replace(/\D/g, ''), 10) || 0) : i.value; schedulePreview(); }; };
@@ -683,8 +689,9 @@ function renderTotals() {
     ${p && p.discount - p.voucher_discount - p.points_discount > 0 ? `<div class="sum disc"><span>Diskon</span><span class="num">−${rp(p.discount - p.voucher_discount - p.points_discount)}</span></div>` : ''}
     <div class="sum total"><span>Total</span><span class="num">${rp(p ? p.total : sub)}</span></div>
     ${p && p.points_will_earn ? `<div class="sum muted"><span>Poin didapat (jika lunas)</span><span>+${p.points_will_earn}</span></div>` : ''}
-    ${S.previewErr ? `<div class="pv-err">${esc(S.previewErr)}</div>` : ''}`;
-  const pay = $('#pay'); if (pay) pay.disabled = !S.cart.length || !!S.previewErr;
+    ${S.previewErr ? `<div class="pv-err">${esc(S.previewErr)}</div>` : ''}
+    ${S.cart.length && S.employees?.length && !S.employee ? `<div class="pv-err">Pilih karyawan yang melayani dulu.</div>` : ''}`;
+  const pay = $('#pay'); if (pay) pay.disabled = !S.cart.length || !!S.previewErr || (S.employees?.length > 0 && !S.employee);
   const bar = $('#cartbar');
   if (bar) {
     bar.classList.toggle('hidden', !S.cart.length);
@@ -835,6 +842,7 @@ function receiptHtml(sale, items) {
     <hr>
     <div>${esc(sale.number)}</div>
     <div>${fmtTime(sale.created)} · ${esc(x.cashier?.name || x.cashier?.username || '')}</div>
+    ${x.employee ? `<div>Dilayani: ${esc(x.employee.name)}</div>` : ''}
     ${x.customer ? `<div>Member: ${esc(x.customer.name || x.customer.username)}</div>` : ''}
     <hr>
     ${sale.kind === 'tukar' ? `<div><b>TUKAR BARANG</b>${x.ref_sale ? ' dari ' + esc(x.ref_sale.number) : ''}</div><hr>` : ''}
@@ -854,7 +862,7 @@ function receiptHtml(sale, items) {
 }
 function receiptText(sale, items) {
   const st = S.settings;
-  return [`*${st.store_name}*`, sale.number, fmtTime(sale.created), '',
+  return [`*${st.store_name}*`, sale.number, fmtTime(sale.created), sale.expand?.employee ? `Dilayani: ${sale.expand.employee.name}` : '', '',
     sale.kind === 'tukar' ? 'Tukar barang' : '',
     ...items.map(i => `${i.name}${TIER_NOTE[i.tier] ? ` (${TIER_NOTE[i.tier]})` : ''}\n  ${i.qty} x ${rp(i.price)} = ${rp(i.subtotal)}`), '',
     sale.discount ? `Diskon: -${rp(sale.discount)}` : '', `*Total: ${rp(sale.total)}*`,
@@ -901,7 +909,7 @@ async function viewTx() {
     try {
       const r = await list('sales', {
         filter: `created >= "${wibStartUTC(day)}" && created < "${wibStartUTC(next)}"`,
-        sort: '-created', perPage: 200, expand: 'customer,cashier,payment_method,ref_sale' });
+        sort: '-created', perPage: 200, expand: 'customer,cashier,payment_method,ref_sale,employee' });
       const live = r.items.filter(s => s.status !== 'batal');
       $('#tstats').innerHTML = `<div class="stats">
         <div class="card stat"><small>Transaksi</small><b class="num">${live.length}</b></div>
@@ -912,7 +920,7 @@ async function viewTx() {
         <button class="tx" data-s="${s.id}">
           <span><b class="num">${esc(s.number)}</b> <span class="badge ${s.status === 'lunas' ? 'ok' : s.status === 'batal' ? 'bad' : 'warn'}">${s.status}</span>${s.kind === 'tukar' ? ` <span class="badge">tukar${s.expand?.ref_sale ? ' · ' + esc(s.expand.ref_sale.number) : ''}</span>` : ''}</span>
           <b class="num">${rp(s.total)}</b>
-          <small class="muted">${fmtTime(s.created)} · ${esc(s.expand?.customer?.name || 'Umum')}${kasir ? '' : ' · ' + esc(s.expand?.cashier?.name || s.expand?.cashier?.username || '')}</small>
+          <small class="muted">${fmtTime(s.created)} · ${esc(s.expand?.customer?.name || 'Umum')}${s.expand?.employee ? ' · ' + esc(s.expand.employee.name) : kasir ? '' : ' · ' + esc(s.expand?.cashier?.name || s.expand?.cashier?.username || '')}</small>
           <small class="muted">${esc(s.expand?.payment_method?.name || '')}</small>
         </button>`).join('') : `<div class="empty">Belum ada transaksi.</div>`;
       $('#tlist').querySelectorAll('[data-s]').forEach(b => b.onclick = async () => {
@@ -1314,7 +1322,7 @@ async function openSwap(key) {
   if (!S.products?.length || !S.methods?.length) await loadCatalog();
   const back = Object.fromEntries(orig.items.map(i => [i.product, 0]));
   const add = [];
-  let q = '';
+  let q = '', swEmp = '';
   const draw = () => {
     const backVal = orig.items.reduce((a, i) => a + i.price * back[i.product], 0);
     const newVal = add.reduce((a, l) => a + lineTotal(l), 0);
@@ -1342,10 +1350,12 @@ async function openSwap(key) {
       ${diff < 0 ? `<div class="err">Barang baru lebih murah. Tukar hanya untuk barang senilai atau lebih mahal, uang tidak dikembalikan. Tambah barang atau pilih yang lain.</div>` : ''}
       ${diff > 0 ? `<div class="row" style="margin-top:8px"><select class="input" id="swm">${S.methods.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select>
         <input class="input num" id="swp" inputmode="numeric" placeholder="Uang diterima" value="${diff}"></div>` : ''}
+      ${S.employees?.length ? `<select class="input" id="swe" style="margin-top:8px" aria-label="Karyawan yang melayani"><option value="">Pilih karyawan yang melayani…</option>${S.employees.map(x => `<option value="${x.id}" ${swEmp === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : ''}
       <input class="input" id="swnote" placeholder="Catatan (mis. ukuran kekecilan)" maxlength="120" style="margin-top:8px">
       <div id="swerr2"></div>
       <div class="row" style="margin-top:14px"><button type="button" class="btn" id="swcancel">Batal</button>
-        <button type="button" class="btn primary" id="swok" ${backVal && newVal && diff >= 0 ? '' : 'disabled'}>Simpan tukar</button></div>`);
+        <button type="button" class="btn primary" id="swok" ${backVal && newVal && diff >= 0 && (!S.employees?.length || swEmp) ? '' : 'disabled'}>Simpan tukar</button></div>`);
+    if ($('#swe')) $('#swe').onchange = () => { swEmp = $('#swe').value; draw(); };
     const lim = id => orig.items.find(i => i.product === id).left;
     const setBack = (id, n) => { back[id] = Math.max(0, Math.min(lim(id), parseInt(n, 10) || 0)); draw(); };
     const setNew = (id, n) => { const l = add.find(x => x.id === id); const p = prodById(id); l.qty = Math.max(0, Math.min(p.stock, parseInt(n, 10) || 0)); if (!l.qty) add.splice(add.indexOf(l), 1); draw(); };
@@ -1367,7 +1377,7 @@ async function openSwap(key) {
           sale: orig.id, returns: orig.items.filter(i => back[i.product]).map(i => ({ product: i.product, qty: back[i.product] })),
           items: add.map(l => ({ product: l.id, qty: l.qty })),
           payment_method: $('#swm')?.value || '', paid: parseInt(($('#swp')?.value || '0').replace(/\D/g, ''), 10) || 0,
-          note: $('#swnote').value.trim() } });
+          note: $('#swnote').value.trim(), employee: swEmp } });
         await loadCatalog();
         showReceipt(r.sale, r.items, true);
         S.reloadTx?.();
@@ -1758,7 +1768,9 @@ async function viewUsers() {
   const owner = role() === 'owner';
   // Pick a role first, then see that role's people (admin sees kasir + pelanggan only).
   const roles = Object.keys(ROLE_LABEL).filter(k => owner || k === 'kasir' || k === 'pelanggan');
-  if (!roles.includes(US.role)) US.role = roles[0];
+  // Karyawan are not logins: the assistants picked per sale on the shared kasir.
+  const tabKeys = [...roles]; tabKeys.splice(1, 0, 'karyawan');
+  if (!tabKeys.includes(US.role)) US.role = tabKeys[0];
   $('#view').innerHTML = `
     <div id="utabs"></div>
     <div class="toolbar">
@@ -1767,11 +1779,12 @@ async function viewUsers() {
     </div>
     <div id="uhint"></div>
     <div class="card"><table class="tbl" id="utbl"><thead></thead><tbody><tr><td colspan="5" class="empty">Memuat…</td></tr></tbody></table></div>`;
-  let all = [];
+  let all = [], emps = [];
   const match = (u, q) => !q || [u.name, u.username, u.phone].some(v => (v || '').toLowerCase().includes(q));
-  const tabs = () => subTabs($('#utabs'), roles.map(k => [k, `${ROLE_LABEL[k]} <span class="cnt">${all.filter(u => u.role === k).length}</span>`]), US, 'role', draw);
+  const tabs = () => subTabs($('#utabs'), tabKeys.map(k => [k, k === 'karyawan' ? `Karyawan <span class="cnt">${emps.filter(x => x.active).length}</span>` : `${ROLE_LABEL[k]} <span class="cnt">${all.filter(u => u.role === k).length}</span>`]), US, 'role', draw);
   const draw = () => {
     const q = US.q.trim().toLowerCase(), pel = US.role === 'pelanggan';
+    if (US.role === 'karyawan') return drawEmp(q);
     $('#unew').textContent = '+ ' + (owner ? ROLE_LABEL[US.role] : 'Pelanggan');
     $('#utbl thead').innerHTML = `<tr><th>Nama</th><th>No HP</th>${pel ? '<th class="r">Poin</th>' : ''}<th>Status</th><th></th></tr>`;
     // active people first, then by name
@@ -1790,8 +1803,43 @@ async function viewUsers() {
       : `<tr><td colspan="5" class="empty">${q ? 'Tidak ada yang cocok.' : `Belum ada ${ROLE_LABEL[US.role].toLowerCase()}.`}</td></tr>`;
     $('#utbl').querySelectorAll('[data-u]').forEach(b => b.onclick = () => editUser(all.find(u => u.id === b.dataset.u)));
   };
+  const drawEmp = q => {
+    $('#unew').textContent = '+ Karyawan';
+    $('#uhint').innerHTML = `<p class="muted" style="margin:0 0 10px">Karyawan dipilih di kasir untuk setiap penjualan (Laporan → Karyawan). Mereka tidak perlu akun login.</p>`;
+    $('#utbl thead').innerHTML = `<tr><th>Nama</th><th>No HP</th><th>Status</th><th></th></tr>`;
+    const rows = emps.filter(x => !q || [x.name, x.phone].some(v => (v || '').toLowerCase().includes(q)))
+      .sort((a, b) => (a.active ? 0 : 1) - (b.active ? 0 : 1) || a.name.localeCompare(b.name, 'id'));
+    $('#utbl tbody').innerHTML = rows.length ? rows.map(x => `<tr class="${x.active ? '' : 'off'}">
+      <td data-l="Nama"><b>${esc(x.name)}</b></td>
+      <td data-l="No HP">${esc(x.phone) || '<span class="muted">—</span>'}</td>
+      <td data-l="Status">${x.active ? '<span class="badge ok">aktif</span>' : '<span class="badge bad">nonaktif</span>'}</td>
+      <td class="r"><button class="btn sm" data-e="${x.id}">Ubah</button></td></tr>`).join('')
+      : `<tr><td colspan="4" class="empty">${q ? 'Tidak ada yang cocok.' : 'Belum ada karyawan. Tambahkan supaya kasir bisa memilih siapa yang melayani.'}</td></tr>`;
+    $('#utbl').querySelectorAll('[data-e]').forEach(b => b.onclick = () => editEmp(emps.find(x => x.id === b.dataset.e)));
+  };
+  const editEmp = x => {
+    const isNew = !x;
+    x = x || { name: '', phone: '', active: true };
+    openModal(`<h2>${isNew ? 'Karyawan baru' : 'Ubah ' + esc(x.name)}</h2>
+      <form id="kf">
+        <label class="f" for="kn">Nama</label><input class="input" id="kn" required maxlength="100" value="${esc(x.name)}">
+        <label class="f" for="kp">No HP / WA <small>(opsional)</small></label><input class="input" id="kp" inputmode="tel" maxlength="20" value="${esc(x.phone)}">
+        <label style="display:flex;gap:8px;align-items:center;margin-top:14px;font-weight:600"><input type="checkbox" id="ka" ${x.active ? 'checked' : ''}> Aktif (muncul di kasir)</label>
+        <div class="muted sm" style="margin-top:6px">Karyawan yang berhenti cukup dinonaktifkan; penjualan lamanya tetap tercatat atas namanya.</div>
+        <div id="kerr"></div>
+        <div class="row" style="margin-top:16px"><button type="button" class="btn" id="kno">Batal</button><button class="btn primary">Simpan</button></div>
+      </form>`);
+    $('#kno').onclick = closeModal;
+    $('#kf').onsubmit = async ev => {
+      ev.preventDefault();
+      try {
+        await api(`/api/collections/employees/records${isNew ? '' : '/' + x.id}`, { method: isNew ? 'POST' : 'PATCH', body: { name: $('#kn').value.trim(), phone: $('#kp').value.trim(), active: $('#ka').checked } });
+        closeModal(); toast('Tersimpan.'); load();
+      } catch (e) { $('#kerr').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+    };
+  };
   const load = async () => {
-    try { all = (await list('users', { sort: 'name' })).items; tabs(); draw(); }
+    try { [all, emps] = await Promise.all([list('users', { sort: 'name' }).then(r => r.items), list('employees', { sort: 'name' }).then(r => r.items)]); tabs(); draw(); }
     catch (e) { $('#utbl tbody').innerHTML = `<tr><td colspan="5"><div class="err">${esc(e.message)}</div></td></tr>`; }
   };
   const editUser = u => {
@@ -1833,7 +1881,7 @@ async function viewUsers() {
     };
   };
   $('#uq').oninput = () => { US.q = $('#uq').value; draw(); };
-  $('#unew').onclick = () => owner ? editUser(null) : openNewCustomerStandalone(load);
+  $('#unew').onclick = () => US.role === 'karyawan' ? editEmp(null) : owner ? editUser(null) : openNewCustomerStandalone(load);
   load();
 }
 // Admin's "+ Pelanggan" reuses the kasir's member form, then refreshes the list.

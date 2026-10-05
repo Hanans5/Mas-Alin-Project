@@ -159,7 +159,7 @@ routerAdd("GET", "/api/reports/cashbook", (e) => {
 
 // GET /api/reports/table?type=&from=&to= — one report as a table, the same
 // rows the screen, Excel and PDF show. Types follow the old system's list:
-// penjualan, produk, kategori, pelanggan, karyawan (by cashier), piutang,
+// penjualan, produk, kategori, pelanggan, karyawan (who served), piutang,
 // pengeluaran, retur (item swaps). Profit columns are for the owner only.
 routerAdd("GET", "/api/reports/table", (e) => {
   const L = require(`${__hooks}/lib.js`);
@@ -178,14 +178,14 @@ routerAdd("GET", "/api/reports/table", (e) => {
 
   if (q.type === "penjualan") {
     title = "Laporan Penjualan";
-    columns = [C("created", "Tanggal", "date"), C("number", "No. transaksi"), C("kasir", "Kasir"), C("pelanggan", "Pelanggan"), C("items", "Item", "num"),
+    columns = [C("created", "Tanggal", "date"), C("number", "No. transaksi"), C("karyawan", "Karyawan"), C("pelanggan", "Pelanggan"), C("items", "Item", "num"),
       C("subtotal", "Subtotal", "rp"), C("discount", "Diskon", "rp"), C("total", "Total", "rp"), C("metode", "Metode"), C("status", "Status"), ...profit];
-    rows = L.query(e.app, `SELECT x.created, x.number, COALESCE(NULLIF(u.name,''), u.username, '') AS kasir,
+    rows = L.query(e.app, `SELECT x.created, x.number, COALESCE(em.name, '-') AS karyawan,
         COALESCE(NULLIF(c.name,''), c.username, 'Umum') AS pelanggan, x.items, x.subtotal, x.discount, x.total,
         COALESCE(m.name, '-') AS metode, CASE WHEN x.kind = 'tukar' THEN 'tukar' ELSE x.status END AS status, x.total - x.hpp_total AS laba
-        FROM (${perSale}) x LEFT JOIN users u ON u.id = x.cashier LEFT JOIN users c ON c.id = x.customer
+        FROM (${perSale}) x LEFT JOIN employees em ON em.id = x.employee LEFT JOIN users c ON c.id = x.customer
         LEFT JOIN payment_methods m ON m.id = x.payment_method ORDER BY x.created`, r,
-      { created: "", number: "", kasir: "", pelanggan: "", items: 0, subtotal: 0, discount: 0, total: 0, metode: "", status: "", laba: 0 });
+      { created: "", number: "", karyawan: "", pelanggan: "", items: 0, subtotal: 0, discount: 0, total: 0, metode: "", status: "", laba: 0 });
   } else if (q.type === "produk" || q.type === "kategori") {
     const byCat = q.type === "kategori";
     title = byCat ? "Laporan Kategori Produk" : "Laporan Produk";
@@ -199,13 +199,16 @@ routerAdd("GET", "/api/reports/table", (e) => {
       { nama: "", sku: "", kategori: "", qty: 0, amount: 0, hpp: 0, laba: 0 });
   } else if (q.type === "pelanggan" || q.type === "karyawan") {
     const cust = q.type === "pelanggan";
-    title = cust ? "Laporan Pelanggan" : "Laporan Karyawan (kasir)";
-    columns = [C("nama", cust ? "Pelanggan" : "Kasir"), C("kontak", "Kontak"), C("penjualan", "Penjualan", "rp"), C("transaksi", "Transaksi", "num"),
+    title = cust ? "Laporan Pelanggan" : "Laporan Karyawan";
+    columns = [C("nama", cust ? "Pelanggan" : "Karyawan"), C("kontak", "Kontak"), C("penjualan", "Penjualan", "rp"), C("transaksi", "Transaksi", "num"),
       C("items", "Item", "num"), C("diskon", "Diskon", "rp"), ...profit];
-    const col = cust ? "customer" : "cashier";
-    rows = L.query(e.app, `SELECT COALESCE(NULLIF(u.name,''), u.username, ${cust ? "'Umum (tanpa member)'" : "'-'"}) AS nama, COALESCE(u.phone, '') AS kontak,
+    // karyawan = who served (sales.employee); sales before karyawan were picked show as "Tanpa karyawan"
+    const who = cust
+      ? { name: "COALESCE(NULLIF(u.name,''), u.username, 'Umum (tanpa member)')", phone: "COALESCE(u.phone, '')", join: "LEFT JOIN users u ON u.id = x.customer", by: "x.customer" }
+      : { name: "COALESCE(em.name, 'Tanpa karyawan')", phone: "COALESCE(em.phone, '')", join: "LEFT JOIN employees em ON em.id = x.employee", by: "x.employee" };
+    rows = L.query(e.app, `SELECT ${who.name} AS nama, ${who.phone} AS kontak,
         SUM(x.total) AS penjualan, COUNT(*) AS transaksi, SUM(x.items) AS items, SUM(x.discount) AS diskon, SUM(x.total - x.hpp_total) AS laba
-        FROM (${perSale}) x LEFT JOIN users u ON u.id = x.${col} GROUP BY x.${col} ORDER BY penjualan DESC`, r,
+        FROM (${perSale}) x ${who.join} GROUP BY ${who.by} ORDER BY penjualan DESC`, r,
       { nama: "", kontak: "", penjualan: 0, transaksi: 0, items: 0, diskon: 0, laba: 0 });
   } else if (q.type === "piutang") {
     title = "Laporan Piutang";
