@@ -184,6 +184,7 @@ h3.sec{margin:18px 0 8px;font-size:15px}
 .subtabs button{border:0;background:none;padding:10px 14px;font-weight:700;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;min-height:44px}
 .subtabs button.on{color:var(--accent);border-bottom-color:var(--accent)}
 .link{border:0;background:none;padding:0;color:var(--accent);font-weight:700;text-decoration:underline;text-underline-offset:3px;min-height:0}
+.bonnote{display:block;width:calc(100% - 24px);margin:6px 12px 0;text-align:left;border:1.5px solid var(--warn);background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:8px 12px;font-weight:600}
 .cd-grid{display:grid;gap:16px;margin-top:10px}
 @media (min-width:900px){.cd-grid{grid-template-columns:minmax(300px,380px) 1fr;align-items:start}.cd-form{position:sticky;top:72px}}
 .cd-spend{min-width:0}
@@ -603,7 +604,7 @@ function setQty(id, qty) {
   cartChanged();
 }
 function resetSale() {
-  S.cart = []; S.customer = null; S.discount = 0; S.preview = null; S.previewErr = ''; S.employee = '';
+  S.cart = []; S.customer = null; S.customerBon = null; S.discount = 0; S.preview = null; S.previewErr = ''; S.employee = '';
 }
 function cartChanged() { renderGrid(); renderCart(); schedulePreview(); }
 
@@ -645,6 +646,7 @@ function renderCart() {
         : `<b>Pelanggan umum</b><small>Ketuk untuk pilih / daftar member</small>`}</button>
       ${c ? `<button class="btn ghost sm" id="clrCust" aria-label="Hapus pelanggan">✕</button>` : ''}
     </div>
+    ${c && S.customerBon ? `<button class="bonnote" id="cbon">Bon belum lunas <b class="num">${rp(S.customerBon.total)}</b> · Bayar</button>` : ''}
     ${S.employees?.length ? `<select class="input emp ${S.employee ? '' : 'need'}" id="emp" aria-label="Karyawan yang melayani"><option value="">Pilih karyawan yang melayani…</option>${S.employees.map(x => `<option value="${x.id}" ${S.employee === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : ''}
     ${S.cart.length ? `<div class="cart-tools"><button class="btn ghost sm" id="cclear">Kosongkan</button><span id="clrmsg"></span></div>` : ''}
     <div class="lines">${S.cart.length ? S.cart.map(l => {
@@ -669,7 +671,8 @@ function renderCart() {
       <button class="btn primary block" id="pay" ${S.cart.length ? '' : 'disabled'}>Bayar</button>
     </div>`;
   $('#pickCust').onclick = openCustomerPicker;
-  if ($('#clrCust')) $('#clrCust').onclick = () => { S.customer = null; renderCart(); schedulePreview(); };
+  if ($('#clrCust')) $('#clrCust').onclick = () => { S.customer = null; S.customerBon = null; renderCart(); schedulePreview(); };
+  if ($('#cbon')) $('#cbon').onclick = () => openBonSearch({ customer: S.customer.id, label: S.customer.name || S.customer.username, after: refreshCustomerBon });
   $('#cclose').onclick = () => el.classList.remove('open');
   el.querySelectorAll('[data-inc]').forEach(b => b.onclick = () => addToCart(b.dataset.inc));
   el.querySelectorAll('[data-dec]').forEach(b => b.onclick = () => { const l = S.cart.find(x => x.id === b.dataset.dec); setQty(l.id, l.qty - 1); });
@@ -729,7 +732,7 @@ function openCustomerPicker() {
         </button>`).join('') : `<div class="empty">Tidak ditemukan.</div>`;
       $('#cres').querySelectorAll('[data-u]').forEach(b => b.onclick = () => {
         S.customer = r.items.find(u => u.id === b.dataset.u);
-        closeModal(); renderCart(); schedulePreview();
+        closeModal(); renderCart(); schedulePreview(); refreshCustomerBon();
       });
     } catch (e) { $('#cres').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
   };
@@ -762,7 +765,7 @@ function openNewCustomer() {
       const u = await api('/api/collections/users/records', { method: 'POST', body: {
         name: $('#nn').value.trim(), phone: $('#nh').value.trim(), username: $('#nu').value.trim().toLowerCase(),
         password: pw, passwordConfirm: pw, role: 'pelanggan' } });
-      S.customer = u;
+      S.customer = u; S.customerBon = null;
       closeModal(); renderCart(); schedulePreview();
       toast('Member terdaftar.');
     } catch (e) {
@@ -947,6 +950,7 @@ async function viewTx() {
   $('#view').innerHTML = `
     <div class="row" style="max-width:420px;margin-bottom:12px">
       ${kasir ? `<div class="muted" style="align-self:center">Transaksi kamu hari ini</div>` : `<input class="input" type="date" id="td" value="${day}" max="${day}">`}
+      <button class="btn" id="tbon" style="flex:0 0 auto">Bayar bon</button>
       <button class="btn" id="tswap" style="flex:0 0 auto">Tukar barang</button>
     </div>
     <div id="tstats"></div>
@@ -981,6 +985,7 @@ async function viewTx() {
   };
   if ($('#td')) $('#td').onchange = () => { day = $('#td').value || wibToday(); load(); };
   $('#tswap').onclick = askSwap;
+  $('#tbon').onclick = () => openBonSearch({ after: () => S.reloadTx?.() });
   S.reloadTx = load;
   load();
 }
@@ -1806,6 +1811,67 @@ function viewReports() {
   load();
 }
 
+// ── bon at the counter ──────────────────────────────
+// Owner, admin and the shared kasir login take bon payments. The cart shows
+// a notice when the chosen pelanggan still owes; Transaksi → Bayar bon finds
+// any open bon by name, phone or receipt number.
+async function refreshCustomerBon() {
+  const c = S.customer;
+  S.customerBon = null;
+  if (!c) return;
+  try {
+    const r = await api(`/api/bon/open?customer=${encodeURIComponent(c.id)}`);
+    if (S.customer?.id === c.id) S.customerBon = r.items.length ? r : null;
+  } catch (_) {}
+  if ($('#cart')) renderCart();
+}
+function openBonSearch(opts = {}) {
+  let q = opts.q || '';
+  const draw = async () => {
+    openModal(`<h2>Bayar bon${opts.label ? ' · ' + esc(opts.label) : ''}</h2>
+      ${opts.customer ? '' : `<input class="input" id="bq" placeholder="Nama, no HP, atau no. transaksi" value="${esc(q)}" autocomplete="off">`}
+      <div id="bres" style="margin-top:8px"><div class="empty">Memuat…</div></div>
+      <button class="btn block" id="bclose" style="margin-top:10px">Tutup</button>`);
+    $('#bclose').onclick = () => { closeModal(); opts.after?.(); };
+    const load = async () => {
+      try {
+        const r = await api(`/api/bon/open?${opts.customer ? 'customer=' + encodeURIComponent(opts.customer) : 'q=' + encodeURIComponent(q)}`);
+        if (!$('#bres')) return;
+        $('#bres').innerHTML = r.items.length ? `<div class="muted sm" style="margin-bottom:4px">${r.items.length} bon · sisa ${rp(r.total)}</div>` + r.items.map(b => `
+          <div class="list-item"><span><b>${esc(b.name || '-')}</b>${b.phone ? ` <small class="muted">${esc(b.phone)}</small>` : ''}<br>
+            <small class="muted"><span class="num">${esc(b.number)}</span> · ${fmtTime(b.created)}${b.due ? ' · jatuh tempo ' + fd(String(b.due).slice(0, 10)) : ''}</small></span>
+            <span class="r"><b class="num">${rp(b.amount - b.paid)}</b><br><small class="muted">dari ${rp(b.amount)}</small></span>
+            <button class="btn sm primary" data-bon="${b.id}">Bayar</button></div>`).join('')
+          : `<div class="empty">Tidak ada bon yang belum lunas.</div>`;
+        $('#bres').querySelectorAll('[data-bon]').forEach(x => x.onclick = () => payBon(r.items.find(b => b.id === x.dataset.bon), draw));
+      } catch (e) { if ($('#bres')) $('#bres').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+    };
+    const i = $('#bq');
+    if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); i.oninput = () => { q = i.value; clearTimeout(i.t); i.t = setTimeout(load, 250); }; }
+    load();
+  };
+  draw();
+}
+// Proof for the pelanggan after a bon payment: print on the receipt printer or send on WhatsApp.
+function bonProof(b, pay, done) {
+  const st = S.settings, now = new Date().toISOString().replace('T', ' ');
+  const lines = [
+    ['Pembayaran bon', ''], ['No. transaksi', b.number], ['Pelanggan', b.name || '-'],
+    ['Dibayar', `${rp(pay.amount)} (${pay.method})`], ['Sisa bon', pay.left ? rp(pay.left) : 'LUNAS'],
+  ];
+  const html = `<div class="receipt"><div class="c"><b>${esc(st.store_name)}</b></div>${st.address ? `<div class="c">${esc(st.address)}</div>` : ''}<hr>
+    <div>${fmtTime(now)} · ${esc(S.user.name || S.user.username)}</div><hr>
+    ${lines.map(([k, v]) => v === '' ? `<div><b>${esc(k.toUpperCase())}</b></div>` : `<div class="r"><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join('')}
+    <hr><div class="c">Terima kasih</div></div>`;
+  const text = [`*${st.store_name}*`, 'Bukti pembayaran bon', fmtTime(now), '', `No. transaksi: ${b.number}`, `Dibayar: ${rp(pay.amount)} (${pay.method})`,
+    pay.left ? `Sisa bon: ${rp(pay.left)}` : 'Bon LUNAS', '', 'Terima kasih!'].join('\n');
+  openModal(`<h2>✓ Pembayaran bon tersimpan</h2>${html}
+    <div class="row"><button class="btn" id="bpprint">🖨 Cetak</button>${b.phone ? `<a class="btn" target="_blank" rel="noopener" href="https://wa.me/${waNumber(b.phone)}?text=${encodeURIComponent(text)}">WhatsApp</a>` : ''}</div>
+    <button class="btn primary block" id="bpdone" style="margin-top:8px">Selesai</button>`);
+  $('#bpprint').onclick = () => { $('#print').innerHTML = html; printAs('receipt'); };
+  $('#bpdone').onclick = () => { closeModal(); done?.(); };
+}
+
 // ── pelanggan detail: the form on the left, spending on the right ──
 // Replaces points: Mas Alin decides bonuses from what each pelanggan spends.
 const CS = { preset: 'year' };
@@ -1872,7 +1938,7 @@ async function viewCustomer(u, back) {
         showReceipt(sale, it.items, false);
       } catch (e) { toast(e.message, true); }
     });
-    el.querySelectorAll('[data-bon]').forEach(b => b.onclick = () => payBon(r.bon.find(x => x.id === b.dataset.bon), load));
+    el.querySelectorAll('[data-bon]').forEach(b => b.onclick = () => payBon({ ...r.bon.find(x => x.id === b.dataset.bon), name: u.name || u.username, phone: u.phone }, load));
   };
   $('#cdper').querySelectorAll('[data-p]').forEach(b => b.onclick = () => {
     CS.preset = b.dataset.p;
@@ -1905,7 +1971,7 @@ async function payBon(b, done) {
     $('#bok').disabled = true;
     try {
       const r = await api('/api/receivables/pay', { method: 'POST', body: { receivable: b.id, amount, payment_method: method, note: $('#bn').value.trim() } });
-      closeModal(); toast(r.left ? `Tersimpan. Sisa bon ${rp(r.left)}.` : 'Bon lunas.'); done();
+      bonProof(b, { amount, method: methods.find(m => m.id === method)?.name || '', left: r.left }, done);
     } catch (e) { $('#berr').innerHTML = `<div class="err">${esc(e.message)}</div>`; $('#bok').disabled = false; }
   };
 }

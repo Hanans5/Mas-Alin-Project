@@ -75,10 +75,23 @@ const pq = await api(O, "POST", "/api/receivables/pay", { receivable: rc6.id, am
 check("bon payment by QRIS refused", pq.status === 400, pq.body);
 const over = await api(O, "POST", "/api/receivables/pay", { receivable: rc6.id, amount: 12001, payment_method: TUNAI });
 check("bon overpayment refused", over.status === 400, over.body);
-const kpay = await api(K, "POST", "/api/receivables/pay", { receivable: rc6.id, amount: 1000, payment_method: TUNAI });
-check("kasir cannot take bon payments", kpay.status === 403, kpay.status);
-const p2 = await api(O, "POST", "/api/receivables/pay", { receivable: rc6.id, amount: 12000, payment_method: TUNAI });
-check("bon payment 2: Tunai 12.000, paid off", p2.status === 200 && p2.body.left === 0, p2.body);
+// the shared kasir login takes bon payments at the counter
+const found = await api(K, "GET", `/api/bon/open?q=${encodeURIComponent(cust.username)}`);
+check("kasir finds the pelanggan's open bons by name", found.status === 200 && found.body.items.some((b) => b.id === rc6.id && b.amount - b.paid === 12000) && found.body.items.some((b) => b.id === rc7.id), found.body);
+const byNo = await api(K, "GET", `/api/bon/open?q=${encodeURIComponent(f6.body.sale.number.toLowerCase())}`);
+check("kasir finds a bon by receipt number", byNo.status === 200 && byNo.body.items.length === 1 && byNo.body.items[0].id === rc6.id, byNo.body);
+const kpay = await api(K, "POST", "/api/receivables/pay", { receivable: rc6.id, amount: 2000, payment_method: TUNAI });
+check("kasir takes a bon payment: Tunai 2.000, left 10.000", kpay.status === 200 && kpay.body.left === 10000, kpay.body);
+const kover = await api(K, "POST", "/api/receivables/pay", { receivable: rc6.id, amount: 10001, payment_method: TUNAI });
+check("kasir cannot overpay a bon either", kover.status === 400, kover.body);
+const C = await login(cust.username);
+const custSearch = await api(C, "GET", "/api/bon/open");
+const custPay = await api(C, "POST", "/api/receivables/pay", { receivable: rc6.id, amount: 1000, payment_method: TUNAI });
+check("pelanggan can't search bons or record payments", custSearch.status === 403 && custPay.status === 403, [custSearch.status, custPay.status]);
+const p2 = await api(O, "POST", "/api/receivables/pay", { receivable: rc6.id, amount: 10000, payment_method: TUNAI });
+check("bon payment 3: Tunai 10.000, paid off", p2.status === 200 && p2.body.left === 0, p2.body);
+const gone = await api(K, "GET", `/api/bon/open?q=${encodeURIComponent(f6.body.sale.number)}`);
+check("a paid-off bon leaves the open list", gone.status === 200 && gone.body.items.length === 0, gone.body);
 const s6 = (await api(O, "GET", `/api/collections/sales/records/${f6.body.sale.id}`)).body;
 check("paid-off bon marks the sale lunas, sale.paid stays 20.000 (no double count)", s6.status === "lunas" && s6.paid === 20000, s6);
 
@@ -99,10 +112,10 @@ const today = new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10);
 const cb = (await api(O, "GET", `/api/reports/cashbook?from=${today}&to=${today}`)).body;
 const mine = cb.lines.filter((l) => numbers.includes(l.ref));
 const sum = (m) => mine.filter((l) => l.method === m && l.type === "masuk").reduce((a, l) => a + l.amount, 0);
-// Tunai: 94.000 (F1) + 20.000 (F6 DP) + 12.000 (bon) + 62.000 (F10) = 188.000; Transfer: 30.000 (F1) + 30.000 (bon) + 62.000 (F13) = 122.000
+// Tunai: 94.000 (F1) + 20.000 (F6 DP) + 2.000 + 10.000 (bon) + 62.000 (F10) = 188.000; Transfer: 30.000 (F1) + 30.000 (bon) + 62.000 (F13) = 122.000
 check("Buku Kas Tunai = 188.000", sum("Tunai") === 188000, mine);
 check("Buku Kas Transfer = 122.000", sum("Transfer") === 122000, mine);
-check("Buku Kas labels DP and bon payments", mine.some((l) => l.source === "DP penjualan" && l.amount === 20000) && mine.filter((l) => l.source === "Bayar piutang").length === 2, mine.map((l) => [l.source, l.method, l.amount]));
+check("Buku Kas labels DP and bon payments (3)", mine.some((l) => l.source === "DP penjualan" && l.amount === 20000) && mine.filter((l) => l.source === "Bayar piutang").length === 3, mine.map((l) => [l.source, l.method, l.amount]));
 check("nothing in Buku Kas for the pure bon yet", !mine.some((l) => l.ref === f7.body.sale.number), mine.filter((l) => l.ref === f7.body.sale.number));
 
 // Sales report shows the split

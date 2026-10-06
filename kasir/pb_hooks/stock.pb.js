@@ -21,11 +21,12 @@ routerAdd("POST", "/api/stock/move", (e) => {
   return e.json(200, e.app.findRecordById("stock_moves", id));
 }, $apis.requireAuth("users"));
 
-// POST /api/receivables/pay — record a debt payment. Owner/admin only.
+// POST /api/receivables/pay — record a bon (debt) payment. Owner, admin and
+// the shared kasir login (customers pay their bon at the counter).
 // Body: { receivable, amount, payment_method, note? }
 routerAdd("POST", "/api/receivables/pay", (e) => {
   const L = require(`${__hooks}/lib.js`);
-  L.requireRole(e, ["owner", "admin"]);
+  L.requireRole(e, ["owner", "admin", "kasir"]);
   const b = e.requestInfo().body || {};
   const amount = L.int(b.amount, "Jumlah");
   if (amount < 1) throw new BadRequestError("Jumlah harus lebih dari 0.");
@@ -58,4 +59,30 @@ routerAdd("POST", "/api/receivables/pay", (e) => {
     result = { payment: pay.id, receivable: rc.id, left: rc.getInt("amount") - rc.getInt("paid") };
   });
   return e.json(200, result);
+}, $apis.requireAuth("users"));
+
+// GET /api/bon/open?q=&customer= — open bons for the counter: search by
+// pelanggan name, username, phone or receipt number, or list one pelanggan's
+// bons. Staff only (the kasir can't read receivables through the records API).
+routerAdd("GET", "/api/bon/open", (e) => {
+  const L = require(`${__hooks}/lib.js`);
+  L.requireRole(e, ["owner", "admin", "kasir"]);
+  const q = e.requestInfo().query;
+  const p = {};
+  let where = "rc.status = 'belum'";
+  const cust = String(q.customer || "").trim();
+  if (cust) { where += " AND rc.customer = {:c}"; p.c = cust; }
+  const term = String(q.q || "").trim().toLowerCase().slice(0, 60);
+  if (term) {
+    // LIKE with the user's text escaped, so % and _ match literally
+    p.t = "%" + term.replace(/[\\%_]/g, (m) => "\\" + m) + "%";
+    where += ` AND (lower(COALESCE(u.name,'')) LIKE {:t} ESCAPE '\\' OR lower(COALESCE(u.username,'')) LIKE {:t} ESCAPE '\\'
+      OR COALESCE(u.phone,'') LIKE {:t} ESCAPE '\\' OR lower(s.number) LIKE {:t} ESCAPE '\\')`;
+  }
+  const items = L.query(e.app, `SELECT rc.id, s.number, s.created, rc.amount, rc.paid, COALESCE(rc.due_date,'') AS due,
+      rc.customer, COALESCE(NULLIF(u.name,''), u.username, '') AS name, COALESCE(u.phone,'') AS phone
+      FROM receivables rc JOIN sales s ON s.id = rc.sale LEFT JOIN users u ON u.id = rc.customer
+      WHERE ${where} ORDER BY s.created DESC LIMIT 50`, p,
+    { id: "", number: "", created: "", amount: 0, paid: 0, due: "", customer: "", name: "", phone: "" });
+  return e.json(200, { items, total: items.reduce((a, r) => a + r.amount - r.paid, 0) });
 }, $apis.requireAuth("users"));
