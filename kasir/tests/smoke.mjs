@@ -81,6 +81,9 @@ const empList = await api(K, "GET", "/api/collections/employees/records?filter=a
 check("kasir can read the karyawan list", empList.status === 200 && empList.body.items.some((x) => x.id === emp.body.id), empList.status);
 const noEmp = await api(K, "POST", "/api/pos/checkout", { items: [{ product: pid, qty: 1 }], payment_method: tunai, paid: 62000, employee: "" });
 check("sale without karyawan refused", noEmp.status === 400, noEmp.body);
+const tokoSale = await api(K, "POST", "/api/pos/checkout", { items: [{ product: pid, qty: 1 }], payment_method: tunai, paid: 62000, employee: "toko" });
+check("explicit 'Toko' (no karyawan) accepted", tokoSale.status === 200 && tokoSale.body.sale.employee === "", tokoSale.body);
+if (tokoSale.body.sale) await api(A, "POST", `/api/pos/void/${tokoSale.body.sale.id}`, { reason: "uji toko" });
 EMP = emp.body.id;
 const sale1 = await api(K, "POST", "/api/pos/checkout", { items: [{ product: pid, qty: 2 }], customer: custId, payment_method: tunai, paid: 130000 });
 check("kasir checkout 2 × 62.000", sale1.status === 200 && sale1.body.sale.total === 124000 && sale1.body.sale.change === 6000, sale1.body);

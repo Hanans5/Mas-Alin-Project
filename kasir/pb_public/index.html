@@ -195,6 +195,7 @@ h3.sec{margin:18px 0 8px;font-size:15px}
 .paysum .sum.ok b{color:var(--ok)}.paysum .sum.warn b{color:var(--warn)}.paysum .sum.bad b{color:var(--bad)}
 .paysum .err{margin-top:6px}
 .bonbox{margin-top:10px;padding:10px 12px;border:1.5px solid var(--warn);border-radius:10px;background:var(--warn-soft)}
+.emp-hint{margin:8px 12px 0}
 .input.emp{margin:8px 12px 2px;width:calc(100% - 24px);font-weight:600}
 .input.emp.need{border-color:var(--warn);background:var(--warn-soft)}
 .swline{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
@@ -647,7 +648,8 @@ function renderCart() {
       ${c ? `<button class="btn ghost sm" id="clrCust" aria-label="Hapus pelanggan">✕</button>` : ''}
     </div>
     ${c && S.customerBon ? `<button class="bonnote" id="cbon">Bon belum lunas <b class="num">${rp(S.customerBon.total)}</b> · Bayar</button>` : ''}
-    ${S.employees?.length ? `<select class="input emp ${S.employee ? '' : 'need'}" id="emp" aria-label="Karyawan yang melayani"><option value="">Pilih karyawan yang melayani…</option>${S.employees.map(x => `<option value="${x.id}" ${S.employee === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : ''}
+    ${S.employees?.length ? `<select class="input emp ${S.employee ? '' : 'need'}" id="emp" aria-label="Karyawan yang melayani"><option value="">Pilih karyawan yang melayani…</option>${S.employees.map(x => `<option value="${x.id}" ${S.employee === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}<option value="toko" ${S.employee === 'toko' ? 'selected' : ''}>Toko (tanpa karyawan)</option></select>`
+      : isManager() ? `<div class="muted sm emp-hint">Belum ada karyawan, jadi penjual tidak tercatat. Tambahkan di Pengguna → Karyawan.</div>` : ''}
     ${S.cart.length ? `<div class="cart-tools"><button class="btn ghost sm" id="cclear">Kosongkan</button><span id="clrmsg"></span></div>` : ''}
     <div class="lines">${S.cart.length ? S.cart.map(l => {
       const p = prodById(l.id), parts = linePricing(l);
@@ -1402,7 +1404,7 @@ async function openSwap(key) {
       ${diff < 0 ? `<div class="err">Barang baru lebih murah. Tukar hanya untuk barang senilai atau lebih mahal, uang tidak dikembalikan. Tambah barang atau pilih yang lain.</div>` : ''}
       ${diff > 0 ? `<div class="row" style="margin-top:8px"><select class="input" id="swm">${S.methods.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select>
         <input class="input num" id="swp" inputmode="numeric" placeholder="Uang diterima" value="${diff}"></div>` : ''}
-      ${S.employees?.length ? `<select class="input" id="swe" style="margin-top:8px" aria-label="Karyawan yang melayani"><option value="">Pilih karyawan yang melayani…</option>${S.employees.map(x => `<option value="${x.id}" ${swEmp === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : ''}
+      ${S.employees?.length ? `<select class="input" id="swe" style="margin-top:8px" aria-label="Karyawan yang melayani"><option value="">Pilih karyawan yang melayani…</option>${S.employees.map(x => `<option value="${x.id}" ${swEmp === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}<option value="toko" ${swEmp === 'toko' ? 'selected' : ''}>Toko (tanpa karyawan)</option></select>` : ''}
       <input class="input" id="swnote" placeholder="Catatan (mis. ukuran kekecilan)" maxlength="120" style="margin-top:8px">
       <div id="swerr2"></div>
       <div class="row" style="margin-top:14px"><button type="button" class="btn" id="swcancel">Batal</button>
@@ -2027,7 +2029,7 @@ async function viewUsers() {
   };
   const drawEmp = q => {
     $('#unew').textContent = '+ Karyawan';
-    $('#uhint').innerHTML = `<p class="muted" style="margin:0 0 10px">Karyawan dipilih di kasir untuk setiap penjualan (Laporan → Karyawan). Mereka tidak perlu akun login.</p>`;
+    $('#uhint').innerHTML = `<p class="muted" style="margin:0 0 10px">Karyawan dipilih di kasir untuk setiap penjualan (Laporan → Karyawan). Mereka tidak perlu akun login. Penjualan tanpa karyawan (misalnya pemilik yang melayani) dipilih sebagai "Toko".</p>`;
     $('#utbl thead').innerHTML = `<tr><th>Nama</th><th>No HP</th><th>Status</th><th></th></tr>`;
     const rows = emps.filter(x => !q || [x.name, x.phone].some(v => (v || '').toLowerCase().includes(q)))
       .sort((a, b) => (a.active ? 0 : 1) - (b.active ? 0 : 1) || a.name.localeCompare(b.name, 'id'));

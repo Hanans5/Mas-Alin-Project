@@ -225,11 +225,14 @@ function findSale(tx, key) {
 }
 
 // The assistant who served the sale (one shared kasir login, so it's picked
-// per sale). Required as soon as any karyawan is active.
+// per sale). Required as soon as any karyawan is active; "toko" is the
+// explicit choice for a sale with no karyawan (the owner selling, like the
+// old system's "Toko" row), saved as no employee.
 function pickEmployee(tx, id) {
+  if (id === "toko") return "";
   const active = query(tx, "SELECT COUNT(*) AS n FROM employees WHERE active = 1", {}, { n: 0 })[0].n;
   if (!id) {
-    if (active) throw new BadRequestError("Pilih karyawan yang melayani.");
+    if (active) throw new BadRequestError("Pilih karyawan yang melayani, atau Toko.");
     return "";
   }
   let emp;

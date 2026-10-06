@@ -193,7 +193,7 @@ routerAdd("GET", "/api/reports/table", (e) => {
     title = "Laporan Penjualan";
     columns = [C("created", "Tanggal", "date"), C("number", "No. transaksi"), C("karyawan", "Karyawan"), C("pelanggan", "Pelanggan"), C("items", "Item", "num"),
       C("subtotal", "Subtotal", "rp"), C("discount", "Diskon", "rp"), C("total", "Total", "rp"), C("paid", "Dibayar", "rp"), C("metode", "Metode"), C("status", "Status"), ...profit];
-    rows = L.query(e.app, `SELECT x.created, x.number, COALESCE(em.name, '-') AS karyawan,
+    rows = L.query(e.app, `SELECT x.created, x.number, COALESCE(em.name, 'Toko') AS karyawan,
         COALESCE(NULLIF(c.name,''), c.username, 'Umum') AS pelanggan, x.items, x.subtotal, x.discount, x.total, x.paid,
         COALESCE((SELECT GROUP_CONCAT(pm.name, ' + ') FROM sale_payments sp JOIN payment_methods pm ON pm.id = sp.payment_method WHERE sp.sale = x.id), m.name,
           CASE WHEN x.status = 'piutang' THEN 'Bon' ELSE '-' END) AS metode,
@@ -217,10 +217,10 @@ routerAdd("GET", "/api/reports/table", (e) => {
     title = cust ? "Laporan Pelanggan" : "Laporan Karyawan";
     columns = [C("nama", cust ? "Pelanggan" : "Karyawan"), C("kontak", "Kontak"), C("penjualan", "Penjualan", "rp"), C("transaksi", "Transaksi", "num"),
       C("items", "Item", "num"), C("diskon", "Diskon", "rp"), ...profit];
-    // karyawan = who served (sales.employee); sales before karyawan were picked show as "Tanpa karyawan"
+    // karyawan = who served (sales.employee); sales with none (the owner, online orders, older sales) show as "Toko" like the old system
     const who = cust
       ? { name: "COALESCE(NULLIF(u.name,''), u.username, 'Umum (tanpa member)')", phone: "COALESCE(u.phone, '')", join: "LEFT JOIN users u ON u.id = x.customer", by: "x.customer" }
-      : { name: "COALESCE(em.name, 'Tanpa karyawan')", phone: "COALESCE(em.phone, '')", join: "LEFT JOIN employees em ON em.id = x.employee", by: "x.employee" };
+      : { name: "COALESCE(em.name, 'Toko')", phone: "COALESCE(em.phone, '')", join: "LEFT JOIN employees em ON em.id = x.employee", by: "x.employee" };
     rows = L.query(e.app, `SELECT ${who.name} AS nama, ${who.phone} AS kontak,
         SUM(x.total) AS penjualan, COUNT(*) AS transaksi, SUM(x.items) AS items, SUM(x.discount) AS diskon, SUM(x.total - x.hpp_total) AS laba
         FROM (${perSale}) x ${who.join} GROUP BY ${who.by} ORDER BY penjualan DESC`, r,
