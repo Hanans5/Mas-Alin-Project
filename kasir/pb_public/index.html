@@ -189,6 +189,10 @@ h3.sec{margin:18px 0 8px;font-size:15px}
 @media (min-width:900px){.cd-grid{grid-template-columns:minmax(300px,380px) 1fr;align-items:start}.cd-form{position:sticky;top:72px}}
 .cd-spend{min-width:0}
 .cd-big b{color:var(--accent)}
+.seg{display:grid;grid-template-columns:repeat(auto-fit,minmax(0,1fr));gap:6px;margin:12px 0 4px}
+.seg button{border:1.5px solid var(--line);background:var(--card);border-radius:10px;padding:10px 8px;font-weight:700;min-height:46px;color:var(--ink)}
+.seg button.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.seg button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 .payrow{margin-top:4px}
 .payrow .pick{flex-wrap:wrap}
 .paysum{margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--bg)}
@@ -779,40 +783,62 @@ function openNewCustomer() {
 }
 
 // ── payment ─────────────────────────────────────────
-// Payment: one amount per method (Tunai, Transfer), change only from cash,
-// and a shortfall can become a bon (DP = what is paid now) on a named
-// pelanggan. Mirrors lib.js takePayments; the server has the final word.
+// Payment: first choose how the buyer pays (Tunai, Transfer or Split), then
+// the amount. Change only comes from cash; a shortfall can become a bon
+// (DP = what is paid now) on a named pelanggan. Mirrors lib.js takePayments;
+// the server has the final word.
 function openPayment() {
   const p = S.preview;
   if (!p) return toast(S.previewErr || 'Menghitung total, coba lagi.', true);
   const total = p.total;
-  const ms = S.methods.slice().sort((a, b) => (b.is_cash ? 1 : 0) - (a.is_cash ? 1 : 0));
-  const cashM = ms.find(m => m.is_cash);
-  const amt = Object.fromEntries(ms.map(m => [m.id, m === cashM ? total : 0]));
-  let bon = false;
+  const cashM = S.methods.find(m => m.is_cash);
+  const trfM = S.methods.find(m => !m.is_cash);
+  const modes = [cashM && ['tunai', 'Tunai'], trfM && ['transfer', 'Transfer'], cashM && trfM && ['split', 'Split']].filter(Boolean);
+  if (!modes.length) return toast('Belum ada metode bayar aktif.', true);
+  let mode = modes[0][0], bon = false, trfTouched = false;
+  const val = id => parseInt(($('#' + id)?.value || '').replace(/\D/g, ''), 10) || 0;
   const quick = [...new Set([total, ...[10000, 20000, 50000, 100000].map(n => Math.ceil(total / n) * n)].filter(v => v >= total))].slice(0, 4);
   openModal(`
     <h2>Pembayaran</h2>
     <div class="bigtotal num">${rp(total)}</div>
-    ${ms.map(m => `<div class="payrow">
-      <label class="f" for="pa-${m.id}">${esc(m.name)}</label>
-      <div class="row"><input class="input num pay-in" id="pa-${m.id}" data-m="${m.id}" inputmode="numeric" value="${amt[m.id] || ''}" placeholder="0">
-        ${m === cashM ? '' : `<button type="button" class="btn sm" data-rest="${m.id}" style="flex:0 0 auto">Sisa ke sini</button>`}</div>
-      ${m === cashM ? `<div class="pick" style="margin-top:6px">${quick.map(v => `<button type="button" data-v="${v}">${v === total ? 'Uang pas' : rp(v)}</button>`).join('')}<button type="button" data-v="0">Kosongkan</button></div>` : ''}
-    </div>`).join('')}
+    <div class="seg" role="radiogroup" aria-label="Cara bayar">${modes.map(([k, l]) => `<button type="button" role="radio" data-mode="${k}">${l}</button>`).join('')}</div>
+    <div id="payfields"></div>
     <div class="paysum" id="psum"></div>
     ${S.customer ? `<div id="bonbox" class="bonbox hidden">
       <label style="display:flex;gap:8px;align-items:flex-start;font-weight:600"><input type="checkbox" id="cr" style="margin-top:3px"> <span id="bonlbl"></span></label>
       <div id="duewrap" class="hidden"><label class="f" for="due">Jatuh tempo <small>(opsional)</small></label><input class="input" type="date" id="due" min="${wibToday()}"></div>
     </div>
     <button type="button" class="btn block" id="fullbon" style="margin-top:8px">Bon penuh (bayar nanti, ${esc(S.customer.name || S.customer.username)})</button>`
-    : `<div class="muted sm" id="nobon" style="margin-top:8px">Untuk DP atau bon, pilih pelanggan dulu di keranjang.</div>`}
+    : `<div class="muted sm" style="margin-top:8px">Untuk DP atau bon, pilih pelanggan dulu di keranjang.</div>`}
     <label class="f" for="note">Catatan</label><input class="input" id="note" maxlength="300">
     <div id="perr"></div>
     <div class="row" style="margin-top:14px"><button class="btn" id="pback">Kembali</button><button class="btn primary" id="pgo">Selesaikan</button></div>`);
+
+  const cashField = (label, value) => `<div class="payrow"><label class="f" for="pcash">${label}</label>
+    <input class="input num pay-in" id="pcash" inputmode="numeric" value="${value || ''}" placeholder="0">
+    ${mode === 'tunai' ? `<div class="pick" style="margin-top:6px">${quick.map(v => `<button type="button" data-v="${v}">${v === total ? 'Uang pas' : rp(v)}</button>`).join('')}</div>` : ''}</div>`;
+  const trfField = (label, value, hint) => `<div class="payrow"><label class="f" for="ptrf">${label}</label>
+    <input class="input num pay-in" id="ptrf" inputmode="numeric" value="${value || ''}" placeholder="0">
+    <div class="muted sm" style="margin-top:4px">${hint}</div></div>`;
+  // Switching mode starts that mode's amounts fresh: full amount in its method.
+  const setMode = m => {
+    mode = m; bon = false; trfTouched = false;
+    document.querySelectorAll('#mbg [data-mode]').forEach(b => { b.classList.toggle('on', b.dataset.mode === m); b.setAttribute('aria-checked', b.dataset.mode === m); });
+    $('#payfields').innerHTML = m === 'tunai' ? cashField('Uang diterima (tunai)', total)
+      : m === 'transfer' ? trfField('Jumlah transfer', total, 'Transfer harus pas, tidak ada kembalian. Kurangi jumlahnya untuk DP.')
+      : cashField('Bagian tunai', '') + trfField('Bagian transfer', total, 'Terisi otomatis: total dikurangi bagian tunai. Bisa diubah.');
+    if ($('#cr')) $('#cr').checked = false;
+    const c = $('#pcash'), t = $('#ptrf');
+    if (c) { c.oninput = () => { if (mode === 'split' && !trfTouched) t.value = Math.max(0, total - val('pcash')) || ''; update(); }; c.onfocus = () => c.select(); }
+    if (t) { t.oninput = () => { trfTouched = true; update(); }; t.onfocus = () => t.select(); }
+    document.querySelectorAll('#payfields [data-v]').forEach(b => b.onclick = () => { $('#pcash').value = b.dataset.v; update(); });
+    update();
+    const first = mode === 'transfer' ? t : c;
+    first?.focus(); first?.select();
+  };
   const read = () => {
-    let cash = 0, other = 0;
-    for (const m of ms) { const v = parseInt(($('#pa-' + m.id).value || '').replace(/\D/g, ''), 10) || 0; amt[m.id] = v; if (m.is_cash) cash += v; else other += v; }
+    const cash = mode === 'transfer' ? 0 : val('pcash');
+    const other = mode === 'tunai' ? 0 : val('ptrf');
     return { cash, other, sum: cash + other };
   };
   const update = () => {
@@ -821,15 +847,14 @@ function openPayment() {
     let ok = true, html = `<div class="sum"><span>Dibayar</span><b class="num">${rp(sum)}</b></div>`;
     if (other > total) { ok = false; html += `<div class="err">Transfer melebihi total. Kembalian hanya dari tunai.</div>`; }
     else if (sum >= total) {
-      html += `<div class="sum ok"><span>Kembalian (tunai)</span><b class="num">${rp(sum - total)}</b></div>`;
+      html += mode === 'transfer' ? `<div class="sum ok"><span>Status</span><b>Lunas</b></div>`
+        : `<div class="sum ok"><span>Kembalian (tunai)</span><b class="num">${rp(sum - total)}</b></div>`;
       if (bon) { bon = false; if ($('#cr')) $('#cr').checked = false; }
     } else {
       const short = total - sum;
-      if (S.customer) {
-        html += bon ? `<div class="sum warn"><span>${sum ? 'DP sekarang' : 'Dibayar sekarang'}</span><b class="num">${rp(sum)}</b></div><div class="sum warn"><span>Sisa jadi bon</span><b class="num">${rp(short)}</b></div>`
-          : `<div class="sum bad"><span>Kurang</span><b class="num">${rp(short)}</b></div>`;
-        ok = bon;
-      } else { html += `<div class="sum bad"><span>Kurang</span><b class="num">${rp(short)}</b></div>`; ok = false; }
+      if (S.customer && bon) html += `<div class="sum warn"><span>${sum ? 'DP sekarang' : 'Dibayar sekarang'}</span><b class="num">${rp(sum)}</b></div><div class="sum warn"><span>Sisa jadi bon</span><b class="num">${rp(short)}</b></div>`;
+      else html += `<div class="sum bad"><span>Kurang</span><b class="num">${rp(short)}</b></div>`;
+      ok = !!S.customer && bon;
     }
     box.innerHTML = html;
     if ($('#bonbox')) {
@@ -841,23 +866,22 @@ function openPayment() {
     go.textContent = sum >= total ? 'Selesaikan' : bon ? (sum ? `Simpan DP ${rp(sum)}` : 'Simpan bon') : 'Selesaikan';
     return { cash, other, sum };
   };
-  ms.forEach(m => { const i = $('#pa-' + m.id); i.oninput = update; i.onfocus = () => i.select(); });
-  document.querySelectorAll('#mbg [data-v]').forEach(b => b.onclick = () => { $('#pa-' + cashM.id).value = b.dataset.v === '0' ? '' : b.dataset.v; update(); });
-  document.querySelectorAll('#mbg [data-rest]').forEach(b => b.onclick = () => {
-    const rest = Math.max(0, total - ms.filter(m => m.id !== b.dataset.rest).reduce((a, m) => a + (parseInt(($('#pa-' + m.id).value || '').replace(/\D/g, ''), 10) || 0), 0));
-    $('#pa-' + b.dataset.rest).value = rest || ''; update();
-  });
+  document.querySelectorAll('#mbg [data-mode]').forEach(b => b.onclick = () => setMode(b.dataset.mode));
   if ($('#cr')) $('#cr').onchange = () => { bon = $('#cr').checked; update(); };
-  if ($('#fullbon')) $('#fullbon').onclick = () => { ms.forEach(m => { $('#pa-' + m.id).value = ''; }); bon = true; $('#cr').checked = true; update(); };
+  if ($('#fullbon')) $('#fullbon').onclick = () => {
+    if ($('#pcash')) $('#pcash').value = '';
+    if ($('#ptrf')) { $('#ptrf').value = ''; trfTouched = true; }
+    bon = true; $('#cr').checked = true; update();
+  };
   $('#pback').onclick = closeModal;
   $('#pgo').onclick = async () => {
     const go = $('#pgo'), label = go.textContent;
-    const { sum } = update();
+    const { cash, other, sum } = update();
     go.disabled = true; go.textContent = 'Menyimpan…';
+    const payments = [cash > 0 && { method: cashM.id, amount: cash }, other > 0 && { method: trfM.id, amount: other }].filter(Boolean);
     try {
       const r = await api('/api/pos/checkout', { method: 'POST', body: {
-        ...cartBody(), payments: ms.filter(m => amt[m.id] > 0).map(m => ({ method: m.id, amount: amt[m.id] })),
-        credit: sum < total && bon, due_date: bon && $('#due')?.value || '', note: $('#note').value.trim() } });
+        ...cartBody(), payments, credit: sum < total && bon, due_date: bon && $('#due')?.value || '', note: $('#note').value.trim() } });
       resetSale();
       $('#cart')?.classList.remove('open');
       showReceipt(r.sale, r.items, true, r.payments);
@@ -867,8 +891,7 @@ function openPayment() {
       go.disabled = false; go.textContent = label;
     }
   };
-  update();
-  const first = $('#pa-' + (cashM || ms[0]).id); first.focus(); first.select();
+  setMode(mode);
 }
 
 // ── receipt ─────────────────────────────────────────
