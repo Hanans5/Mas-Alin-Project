@@ -77,7 +77,7 @@ function moveStock(tx, { product, type, qty, counted, ref, note, by }) {
 function nextSaleNumber(tx) {
   const prefix = "TRX-" + wibDate().slice(2).replace(/-/g, "") + "-";
   const rows = arrayOf(new DynamicModel({ n: "" }));
-  tx.db().newQuery("SELECT number AS n FROM sales WHERE number LIKE {:p} ORDER BY number DESC LIMIT 1")
+  tx.db().newQuery("SELECT number AS n FROM sales WHERE number LIKE {:p} ORDER BY length(number) DESC, number DESC LIMIT 1")
     .bind({ p: prefix + "%" }).all(rows);
   const last = rows.length ? parseInt(rows[0].n.slice(prefix.length), 10) : 0;
   return prefix + String(last + 1).padStart(4, "0");

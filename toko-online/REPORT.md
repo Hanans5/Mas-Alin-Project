@@ -194,12 +194,12 @@ backups/        database snapshot from before the simulation
 
 ## Demo data (keep it; it's what Mas Alin is shown)
 
-- **Products:** 10, with his real prices and cost prices (HPP).
-- **Simulation (5 Apr – 3 Oct 2026):** 3,732 sales by kasirs Dewi and Rina, 40 members, vouchers, debts, restocks and expenses. The expenses are invented.
-- **6-month totals:** omzet Rp 515,7 juta, gross margin 11,5 %, net profit about Rp 2,5 juta.
-- **Test web orders:** a handful from the test runs.
-  - WEB-261004-004 went through the whole flow in the browser and is now `dikirim`.
-  - One order left by a crashed test will expire on its own and return its stock.
+Since 2026-10-07 the live database holds a **two-year simulation, 7 Oct 2024 – 6 Oct 2026**, made with `tests/simulate-2year.mjs` on a sandbox through the real routes, backdated with `tests/simulate-2year-backdate.mjs` (`EVENTS=sim-2year-events.json`), checked with `tests/check-2year.mjs` (68/68) and `tests/ui-2year.mjs`, then swapped in. Backup of what was there before (the Apr–Oct 2026 demo): `~/nelin-batik/backups/data-before-2year-sim-20261007-153620.db`.
+- Mas Alin's real products, 6 karyawan (plus "Toko"), 44 pelanggan and his `alin` login (password unchanged). 12,225 sales + 156 swaps, 249 bons (some still open), 300 online orders (store "opened" 5 Jan 2026), restocks with supplier payments, quarterly stock counts, expenses, two staff changes.
+- **Kodian prices are assumed** (halfway between HPP and the normal price); Mas Alin should set his real ones in Produk.
+- The simulation's shared `kasir` login and the two "Karyawan Baru (simulasi)" employees are switched off; their sales stay in the reports. Create the real kasir login in Pengguna → Kasir.
+- 3 pelanggan have 4-digit phone numbers (from his data); the online store refuses those, so fix them in Pengguna → Pelanggan.
+- Receipt/web order numbering now sorts by length, so a day past `…-9999` keeps counting (found by the simulation).
 - **Do not wipe** without asking the user.
 
 ## Placeholders and next steps
