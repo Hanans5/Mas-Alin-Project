@@ -541,6 +541,21 @@ function syncNav() {
   document.querySelectorAll('.side [data-nav]').forEach(b => b.classList.toggle('on', b.dataset.nav === a));
   // the top bar shows Keuangan for all four money pages
   document.querySelectorAll('.top [data-nav]').forEach(b => b.classList.toggle('on', b.dataset.nav === a || (b.dataset.nav === 'fin' && S.tab === 'fin')));
+  showActiveNav();
+}
+// Scroll each menu only as far as needed to show the active item (the top bar
+// sideways, the sidebar/drawer down), never the page itself.
+function showActiveNav() {
+  const fit = (box, el, horiz) => {
+    if (!box || !el || !box.clientWidth) return;
+    const [lo, hi, view, scroll] = horiz ? ['left', 'right', 'clientWidth', 'scrollLeft'] : ['top', 'bottom', 'clientHeight', 'scrollTop'];
+    const br = box.getBoundingClientRect(), er = el.getBoundingClientRect();
+    const start = er[lo] - br[lo] + box[scroll] - 12, end = er[hi] - br[lo] + box[scroll] + 12;
+    if (start < box[scroll]) box[scroll] = Math.max(0, start);
+    else if (end > box[scroll] + box[view]) box[scroll] = end - box[view];
+  };
+  fit($('.top .nav'), $('.top .nav button.on'), true);
+  fit($('.side .side-nav'), $('.side .side-nav button.on'), false);
 }
 // Per device: auto = sidebar on a PC screen, top tabs on phone/tablet.
 const NAV_MODES = [['auto', 'Otomatis', 'Menu samping di layar PC, menu atas di HP dan tablet'], ['side', 'Samping kiri', 'Seperti sistem lama; di HP menu dibuka dengan tombol ☰'], ['top', 'Atas', 'Menu berjajar di atas, paling ringkas untuk HP dan tablet']];
@@ -562,6 +577,8 @@ function goNav(key) {
   renderShell();
 }
 function renderShell() {
+  // Rebuilding the shell would reset both menus to the start: keep where they were scrolled.
+  const keep = { top: $('.top .nav')?.scrollLeft || 0, side: $('.side .side-nav')?.scrollTop || 0 };
   const items = navItems(), store = esc(S.settings.store_name);
   const icon = k => `<svg class="ni" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${NAV_ICON[k] || ''}</svg>`;
   let lastGroup = null;
@@ -593,6 +610,7 @@ function renderShell() {
   document.querySelectorAll('[data-nav]').forEach(b => b.onclick = () => goNav(b.dataset.nav));
   $('#menuBtn').onclick = () => $('.shell').classList.add('open');
   $('#scrim').onclick = () => $('.shell').classList.remove('open');
+  $('.top .nav').scrollLeft = keep.top; $('.side .side-nav').scrollTop = keep.side;
   syncNav();
   ({ dash: viewDash, pos: viewPOS, tx: viewTx, online: viewOnline, ship: viewShip, prod: viewProducts, stock: viewStock, fin: viewFinance, rep: viewReports, users: viewUsers, set: viewSettings, me: viewMe })[S.tab]();
 }
