@@ -125,12 +125,16 @@ function query(tx, sql, params, shape) {
 // Prices a cart from the database. Shared by /api/pos/preview and checkout so
 // the till shows exactly what will be charged. Client prices are ignored.
 // Kodian: every full 20 pcs of a line sell at the product's kodian price,
-// the rest at the normal price (45 pcs = 40 kodian + 5 normal). A custom
-// price (owner only, checked by the caller) applies to the whole line.
+// the rest at the normal price (45 pcs = 40 kodian + 5 normal). `kodian: true`
+// on an item (owner only) puts the whole line at the kodian price; a custom
+// price (owner only, kept for the API) applies to the whole line.
 const KODI = 20;
-function splitPrice(p, qty, custom) {
+function splitPrice(p, qty, custom, allKodi) {
   if (custom !== null && custom !== undefined) return [{ qty, price: custom, tier: "kustom" }];
   const kodi = p.getInt("price_kodi"), normal = p.getInt("price");
+  // "Harga kodian" (owner only, checked by the caller): the whole line at the
+  // kodian price, even under 20 pcs, as in the old POS.
+  if (allKodi && kodi > 0) return [{ qty, price: kodi, tier: "kodian" }];
   const k = kodi > 0 ? Math.floor(qty / KODI) * KODI : 0;
   const out = [];
   if (k) out.push({ qty: k, price: kodi, tier: "kodian" });
@@ -148,8 +152,12 @@ function priceCart(tx, e, b) {
   for (const it of items) {
     const q = int(it.qty, "Qty");
     if (q < 1) throw new BadRequestError("Qty minimal 1.");
-    const w = want[it.product] || (want[it.product] = { qty: 0, price: null });
+    const w = want[it.product] || (want[it.product] = { qty: 0, price: null, kodian: false });
     w.qty += q;
+    if (it.kodian === true) {
+      if (!e || role(e) !== "owner") throw new ForbiddenError("Hanya pemilik yang bisa memakai harga kodian.");
+      w.kodian = true;
+    }
     if (it.price !== undefined && it.price !== null && it.price !== "") {
       if (!e || role(e) !== "owner") throw new ForbiddenError("Hanya pemilik yang bisa mengubah harga.");
       const pr = int(it.price, "Harga");
@@ -166,7 +174,8 @@ function priceCart(tx, e, b) {
     if (!p.getBool("active")) throw new BadRequestError(`${p.getString("name")} tidak aktif.`);
     const qty = want[pid].qty;
     if (p.getInt("stock") < qty) throw new BadRequestError(`Stok ${p.getString("name")} tidak cukup (sisa ${p.getInt("stock")}).`);
-    for (const l of splitPrice(p, qty, want[pid].price)) {
+    if (want[pid].kodian && !(p.getInt("price_kodi") > 0)) throw new BadRequestError(`${p.getString("name")} belum punya harga kodian.`);
+    for (const l of splitPrice(p, qty, want[pid].price, want[pid].kodian)) {
       lines.push({ p, qty: l.qty, price: l.price, tier: l.tier, hpp: p.getInt("hpp"), subtotal: l.price * l.qty });
       subtotal += l.price * l.qty;
     }

@@ -98,6 +98,10 @@ await api(A, "PATCH", `/api/collections/products/records/${pid}`, { price_kodi: 
 await api(A, "POST", "/api/stock/move", { product: pid, type: "masuk", qty: 30, note: "uji kodian" });
 const kodi = await api(K, "POST", "/api/pos/preview", { items: [{ product: pid, qty: 25 }] });
 check("kodian: 25 pcs = 20 × 60.000 + 5 × 62.000", kodi.status === 200 && kodi.body.subtotal === 1510000, kodi.body);
+const allKodi = await api(O, "POST", "/api/pos/preview", { items: [{ product: pid, qty: 5, kodian: true }] });
+check("owner 'Harga kodian': 5 pcs all at 60.000", allKodi.status === 200 && allKodi.body.subtotal === 300000 && allKodi.body.lines[0].tier === "kodian", allKodi.body);
+const kasirKodi = await api(K, "POST", "/api/pos/preview", { items: [{ product: pid, qty: 5, kodian: true }] });
+check("kasir can't use 'Harga kodian' (403)", kasirKodi.status === 403, kasirKodi.body);
 await api(A, "POST", "/api/stock/move", { product: pid, type: "keluar", qty: 30, note: "uji kodian selesai" });
 await api(A, "PATCH", `/api/collections/products/records/${pid}`, { price_kodi: 0 });
 const kasirDisc = await api(K, "POST", "/api/pos/checkout", { items: [{ product: pid, qty: 1 }], discount: 50000, payment_method: tunai, paid: 62000 });
