@@ -287,6 +287,31 @@ form.ship-resi .input{flex:1;min-width:0}
 .range .chips{flex:1 1 100%}
 .range .input{flex:1 1 140px}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+/* Dasbor overview (owner/admin): one orange series; #e8590c passes the chart colour checks on both surfaces */
+:root{--chart:#e8590c}
+.ov-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:26px 0 10px}
+.ov-head h2{margin:0;font-size:18px;flex:1 1 auto}
+.ov-chart{position:relative;padding:14px 14px 8px}
+.ov-chart svg{display:block;width:100%;overflow:visible}
+.ov-chart .bar{fill:var(--chart)}
+.ov-chart .hit{fill:transparent;cursor:pointer;outline:none}
+.ov-chart .hit:hover+.bar,.ov-chart .hit:focus-visible+.bar{opacity:.78}
+.ov-chart .grid{stroke:var(--line);stroke-width:1}
+.ov-chart .axis{fill:var(--muted);font-size:11px}
+.ov-chart .peak{fill:var(--ink);font-size:11px;font-weight:700}
+.ov-tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--card);border-radius:8px;padding:6px 9px;font-size:12px;line-height:1.35;white-space:nowrap;transform:translate(-50%,-100%);display:none;z-index:2}
+.ov-tip b{display:block;font-size:13px}
+.ov-chart details{margin-top:8px}
+.ov-chart summary{cursor:pointer;color:var(--muted);font-size:13px;font-weight:600}
+.hb-list{padding:8px 14px 12px}
+.hb{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:7px 0;border-bottom:1px solid var(--line)}
+.hb:last-child{border-bottom:0}
+.hb-n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.hb-s{grid-column:1/-1;color:var(--muted);font-size:12px;margin-top:-2px}
+.hb-v{font-weight:700}
+.hb-t{grid-column:1/-1;height:8px}
+.hb-t i{display:block;height:100%;min-width:2px;background:var(--chart);border-radius:0 4px 4px 0}
+.ov-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:0 14px 12px;color:var(--muted);font-size:13px}
 @media (max-width:860px){.two{grid-template-columns:1fr}}
 .statement{padding:16px 18px;max-width:560px}
 .statement .sum{padding:6px 0;border-bottom:1px solid var(--line)}
@@ -1756,8 +1781,115 @@ async function viewDash() {
           <div class="tx"><span><b>${i + 1}. ${esc(p.name)}</b></span><b class="num">${p.qty} pcs</b><small class="muted"></small><small class="muted num">${rp(p.amount)}</small></div>`).join('') : '<div class="empty">Belum ada penjualan.</div>'}</div></section>
         <section><h3 class="sec">Stok menipis</h3><div class="card">${d.lowStock.length ? d.lowStock.map(p => `
           <div class="tx"><span><b>${esc(p.name)}</b></span><span class="badge warn num">${p.stock}</span><small class="muted">${esc(p.sku)}</small><small class="muted">min ${p.min_stock}</small></div>`).join('') : '<div class="empty">Semua stok aman.</div>'}</div></section>
-      </div>`;
+      </div>
+      ${isManager() ? '<div id="ov"></div>' : ''}`;
+    if (isManager()) dashOverview($('#ov'));
   } catch (e) { $('#view').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+
+// ── Dasbor overview (owner/admin): a period (Tahun ini by default), sales per
+// month (per day for one month), best pelanggan and karyawan sales. Built from
+// /api/reports/sales and the Pelanggan/Karyawan report tables; profit is the
+// owner's only. The kasir login keeps the today-only Dasbor above.
+const OV = { p: 'year' };
+const OV_PERIODS = [['month', 'Bulan ini'], ['year', 'Tahun ini'], ['12m', '12 bulan'], ['lastyear', 'Tahun lalu']];
+const BULAN = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+function ovRange(k) {
+  const t = wibToday();
+  if (k === '12m') { const [y, m] = t.split('-').map(Number), d = new Date(Date.UTC(y, m - 12, 1)); return [d.toISOString().slice(0, 10), t]; }
+  return presetRange(k);
+}
+// Short rupiah for axis labels: 1,2 M / 45 jt / 900 rb.
+const rpShort = v => v >= 1e9 ? (v / 1e9).toLocaleString('id-ID', { maximumFractionDigits: 1 }) + ' M' : v >= 1e6 ? Math.round(v / 1e6).toLocaleString('id-ID') + ' jt' : v >= 1e3 ? Math.round(v / 1e3) + ' rb' : String(v);
+let ovSeq = 0;
+async function dashOverview(el) {
+  const seq = ++ovSeq;
+  const [from, to] = ovRange(OV.p);
+  const byDay = OV.p === 'month';
+  el.innerHTML = `<div class="ov-head"><h2>Ringkasan</h2><div class="chips" style="padding:0">${OV_PERIODS.map(([k, l]) => `<button class="chip ${OV.p === k ? 'on' : ''}" data-ov="${k}">${l}</button>`).join('')}</div></div>
+    <div class="muted" style="margin:-4px 0 10px">${fd(from)} – ${fd(to)}</div><div id="ovb"><div class="card empty">Memuat…</div></div>`;
+  el.querySelectorAll('[data-ov]').forEach(b => b.onclick = () => { OV.p = b.dataset.ov; dashOverview(el); });
+  try {
+    const q = `from=${from}&to=${to}`;
+    const [sales, cust, emp, pl] = await Promise.all([
+      api(`/api/reports/sales?${q}`), api(`/api/reports/table?type=pelanggan&${q}`), api(`/api/reports/table?type=karyawan&${q}`),
+      isOwner() ? api(`/api/reports/profit-loss?${q}`).catch(() => null) : null]);
+    if (seq !== ovSeq || !el.isConnected) return;
+    // one bar per month (or per day for "Bulan ini"), empty periods included
+    const buckets = [];
+    if (byDay) for (let d = from; d <= to; d = addDays(d, 1)) buckets.push({ key: d, label: String(+d.slice(8)), full: fd(d), total: 0, count: 0 });
+    else for (let d = from.slice(0, 7); d <= to.slice(0, 7);) {
+      const [y, m] = d.split('-').map(Number);
+      buckets.push({ key: d, label: BULAN[m - 1], full: `${BULAN[m - 1]} ${y}`, total: 0, count: 0 });
+      d = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+    }
+    const at = Object.fromEntries(buckets.map(b => [b.key, b]));
+    for (const r of sales.perDay) { const b = at[byDay ? r.day : r.day.slice(0, 7)]; if (b) { b.total += r.total; b.count += r.count; } }
+    const omzet = buckets.reduce((a, b) => a + b.total, 0), trx = buckets.reduce((a, b) => a + b.count, 0);
+    const people = cust.rows.filter(r => r.nama !== 'Umum (tanpa member)'), umum = cust.rows.find(r => r.nama === 'Umum (tanpa member)');
+    $('#ovb', el).innerHTML = `
+      <div class="stats">
+        <div class="card stat"><small>Omzet</small><b class="num">${rp(omzet)}</b></div>
+        <div class="card stat"><small>Transaksi</small><b class="num">${trx.toLocaleString('id-ID')}</b></div>
+        <div class="card stat"><small>Rata-rata / transaksi</small><b class="num">${rp(trx ? Math.round(omzet / trx) : 0)}</b></div>
+        ${pl ? `<div class="card stat"><small>Laba kotor</small><b class="num" style="color:var(--ok)">${rp(pl.gross_profit)}</b></div>` : ''}
+      </div>
+      <section class="card ov-chart" aria-label="Penjualan ${byDay ? 'per hari' : 'per bulan'}"><h3 class="sec" style="margin:0 0 6px">Penjualan ${byDay ? 'per hari' : 'per bulan'}</h3>
+        <div class="ov-plot"></div><div class="ov-tip" role="status"></div>
+        <details><summary>Lihat tabel</summary><table class="tbl" style="margin-top:6px"><thead><tr><th>${byDay ? 'Tanggal' : 'Bulan'}</th><th class="r">Transaksi</th><th class="r">Omzet</th></tr></thead><tbody>
+          ${buckets.map(b => `<tr><td data-l="${byDay ? 'Tanggal' : 'Bulan'}">${b.full}</td><td data-l="Transaksi" class="r num">${b.count.toLocaleString('id-ID')}</td><td data-l="Omzet" class="r num">${rp(b.total)}</td></tr>`).join('')}</tbody></table></details>
+      </section>
+      <div class="two" style="margin-top:16px">
+        <section class="card"><h3 class="sec" style="margin:14px 14px 0">Pelanggan terbaik</h3>${hbars(people.slice(0, 8), r => `${r.transaksi.toLocaleString('id-ID')}× belanja · rata-rata ${rp(Math.round(r.penjualan / Math.max(1, r.transaksi)))}`, 'Belum ada belanja pelanggan di periode ini.')}
+          <div class="ov-foot"><span>${umum ? `Pembeli umum (tanpa member): ${rp(umum.penjualan)}` : ''}</span><button class="btn sm" data-rep="pelanggan">Laporan lengkap</button></div></section>
+        <section class="card"><h3 class="sec" style="margin:14px 14px 0">Penjualan karyawan</h3>${hbars(emp.rows, r => `${r.transaksi.toLocaleString('id-ID')} transaksi · ${r.items.toLocaleString('id-ID')} pcs`, 'Belum ada penjualan di periode ini.')}
+          <div class="ov-foot"><span>"Toko" = dilayani pemilik atau pesanan online</span><button class="btn sm" data-rep="karyawan">Laporan lengkap</button></div></section>
+      </div>`;
+    el.querySelectorAll('[data-rep]').forEach(b => b.onclick = () => { Object.assign(RS, { type: b.dataset.rep, from, to, preset: 'custom' }); goNav('rep'); });
+    const plot = $('.ov-plot', el), draw = () => { if (plot.isConnected) barChart(plot, $('.ov-tip', el), buckets); };
+    draw();
+    clearTimeout(S.ovResize); window.onresize = () => { clearTimeout(S.ovResize); S.ovResize = setTimeout(draw, 150); };
+  } catch (e) { if (seq === ovSeq) $('#ovb', el).innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+// Ranked horizontal bars, value in text beside each (the bar is only the shape).
+function hbars(rows, sub, empty) {
+  if (!rows.length) return `<div class="empty">${empty}</div>`;
+  const max = Math.max(...rows.map(r => r.penjualan), 1);
+  return `<div class="hb-list">${rows.map(r => `<div class="hb">
+    <span class="hb-n">${esc(r.nama)}</span><span class="hb-v num">${rp(r.penjualan)}</span><span class="hb-s">${sub(r)}</span>
+    <span class="hb-t" aria-hidden="true"><i style="width:${(r.penjualan / max * 100).toFixed(1)}%"></i></span></div>`).join('')}</div>`;
+}
+// Vertical bars in SVG at the container's real width (text stays 11px on a
+// phone), 4 recessive grid lines, the best period labelled, a tooltip per bar
+// on hover, tap or keyboard focus.
+function barChart(box, tip, data) {
+  const W = Math.max(280, box.clientWidth), H = 220, L = 52, R = 6, T = 18, B = 24, pw = W - L - R, ph = H - T - B;
+  const maxV = Math.max(...data.map(d => d.total), 0);
+  if (!maxV) { box.innerHTML = `<div class="empty">Belum ada penjualan di periode ini.</div>`; return; }
+  const raw = maxV / 4, mag = 10 ** Math.floor(Math.log10(raw)), step = [1, 2, 2.5, 5, 10].map(x => x * mag).find(x => x >= raw), top = step * 4;
+  const band = pw / data.length, bw = Math.max(3, Math.min(36, band * 0.68)), y = v => T + ph - v / top * ph;
+  const every = Math.ceil(data.length / Math.max(1, Math.floor(pw / 34)));   // thin out day labels on narrow screens
+  const peak = data.reduce((a, d) => d.total > a.total ? d : a, data[0]);
+  let svg = '';
+  for (let i = 0; i <= 4; i++) { const v = step * i, yy = y(v).toFixed(1); svg += `<line class="grid" x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}"/><text class="axis" x="${L - 6}" y="${yy}" dy="4" text-anchor="end">${i ? rpShort(v) : '0'}</text>`; }
+  data.forEach((d, i) => {
+    const cx = L + band * i + band / 2, x = cx - bw / 2, h = d.total / top * ph, yy = T + ph - h, r = Math.min(4, bw / 2, h);
+    const shape = h > 0 ? `<path class="bar" d="M${x},${T + ph}V${yy + r}Q${x},${yy} ${x + r},${yy}H${x + bw - r}Q${x + bw},${yy} ${x + bw},${yy + r}V${T + ph}Z"/>` : '<path class="bar" d=""/>';
+    svg += `<rect class="hit" data-i="${i}" x="${L + band * i}" y="${T}" width="${band}" height="${ph}" tabindex="0" aria-label="${esc(d.full)}: ${rp(d.total)}, ${d.count} transaksi"/>${shape}`;
+    if (i % every === 0) svg += `<text class="axis" x="${cx}" y="${H - 6}" text-anchor="middle">${esc(d.label)}</text>`;
+  });
+  const pcx = L + band * data.indexOf(peak) + band / 2;
+  svg += `<text class="peak" x="${Math.min(Math.max(pcx, L + 30), W - R - 30)}" y="${y(peak.total) - 6}" text-anchor="middle">${rpShort(peak.total)}</text>`;
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Grafik batang penjualan">${svg}</svg>`;
+  const show = el => {
+    const d = data[+el.dataset.i], cx = L + band * +el.dataset.i + band / 2;
+    tip.innerHTML = `<b>${esc(d.full)}</b>${rp(d.total)} · ${d.count.toLocaleString('id-ID')} transaksi`;
+    tip.style.display = 'block';
+    const half = tip.offsetWidth / 2 + 4, left = Math.min(Math.max(cx + 14, half), box.clientWidth + 14 - half);
+    tip.style.left = left + 'px'; tip.style.top = (box.offsetTop + y(d.total) - 8) + 'px';
+  };
+  const hide = () => { tip.style.display = 'none'; };
+  box.querySelectorAll('.hit').forEach(h => { h.onpointerenter = () => show(h); h.onclick = () => show(h); h.onfocus = () => show(h); h.onpointerleave = hide; h.onblur = hide; });
 }
 
 // ── keuangan ────────────────────────────────────────
