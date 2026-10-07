@@ -25,6 +25,7 @@ Read `~/nelin-store/REPORT.md` first: the full handoff for both apps (they share
 - Swap (tukar barang) = sale `kind: "tukar"` + `ref_sale`; returned lines have negative qty (`tier: "retur"`). A sale with a live swap can't be voided.
 - Karyawan per sale: `employee` = id or `"toko"`; required once any karyawan is active.
 - The kasir role can't read `receivables` through the records API; staff routes such as `/api/bon/open` serve it.
+- The kasir role (one shared login for the karyawan) also gets Pelanggan (no spending), Pesanan Online/Pengiriman (`/api/store/admin` actions ship/resi/ready/complete only) and Stok (`/api/stock/move`). Money decisions stay owner/admin.
 
 ## Secrets & privacy
 - `ACCOUNTS.md` (mode 600) holds passwords in plain text, without backticks: never print its lines; read values straight into shell variables.

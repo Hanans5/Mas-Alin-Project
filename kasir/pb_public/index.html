@@ -456,7 +456,7 @@ function renderLogin(err) {
 const TABS = {
   owner:     [['dash', 'Dasbor'], ['pos', 'Kasir'], ['tx', 'Transaksi'], ['online', 'Pesanan Online'], ['ship', 'Pengiriman'], ['prod', 'Produk'], ['stock', 'Stok'], ['fin', 'Keuangan'], ['rep', 'Laporan'], ['users', 'Pengguna'], ['set', 'Pengaturan']],
   admin:     [['dash', 'Dasbor'], ['pos', 'Kasir'], ['tx', 'Transaksi'], ['online', 'Pesanan Online'], ['ship', 'Pengiriman'], ['prod', 'Produk'], ['stock', 'Stok'], ['fin', 'Keuangan'], ['rep', 'Laporan'], ['users', 'Pengguna'], ['set', 'Pengaturan']],
-  kasir:     [['pos', 'Kasir'], ['tx', 'Transaksi Hari Ini']],
+  kasir:     [['pos', 'Kasir'], ['tx', 'Transaksi Hari Ini'], ['users', 'Pelanggan'], ['online', 'Pesanan Online'], ['ship', 'Pengiriman'], ['stock', 'Stok']],
   pelanggan: [['me', 'Akun Saya']],
 };
 async function startApp() {
@@ -522,7 +522,8 @@ const NAV = [
 const NAV_TOP = ['dash', 'pos', 'tx', 'pelanggan', 'fin', 'rep', 'online', 'ship', 'stock', 'prod', 'users', 'set', 'me'];
 function navItems() {
   const tabs = TABS[role()] || [], label = Object.fromEntries(tabs);
-  return NAV.filter(([, , , tab, , own]) => tab in label && (!own || role() === 'owner'))
+  // the kasir login's "Pelanggan" is the only users page it gets (no Karyawan/Pengguna)
+  return NAV.filter(([key, , , tab, , own]) => tab in label && (!own || role() === 'owner') && (role() !== 'kasir' || tab !== 'users' || key === 'pelanggan'))
     .map(([key, l, group, tab, setup]) => ({ key, label: l || label[tab], group, tab, setup }));
 }
 function topItems() {
@@ -2213,11 +2214,12 @@ async function payBon(b, done) {
 const ROLE_LABEL = { kasir: 'Kasir', admin: 'Admin', owner: 'Owner', pelanggan: 'Pelanggan' };
 const US = { role: 'kasir', q: '', psort: 'belanja' };
 async function viewUsers() {
-  const owner = role() === 'owner';
-  // Pick a role first, then see that role's people (admin sees kasir + pelanggan only).
-  const roles = Object.keys(ROLE_LABEL).filter(k => owner || k === 'kasir' || k === 'pelanggan');
+  const owner = role() === 'owner', kasir = role() === 'kasir';
+  // Pick a role first, then see that role's people (admin sees kasir + pelanggan only;
+  // the kasir login sees pelanggan only, without spending, and takes their bon).
+  const roles = Object.keys(ROLE_LABEL).filter(k => owner || (!kasir && k === 'kasir') || k === 'pelanggan');
   // Karyawan are not logins: the assistants picked per sale on the shared kasir.
-  const tabKeys = [...roles]; tabKeys.splice(1, 0, 'karyawan');
+  const tabKeys = [...roles]; if (!kasir) tabKeys.splice(1, 0, 'karyawan');
   if (!tabKeys.includes(US.role)) US.role = tabKeys[0];
   $('#view').innerHTML = `
     <div id="utabs"></div>
@@ -2232,7 +2234,7 @@ async function viewUsers() {
   const match = (u, q) => !q || [u.name, u.username, u.phone].some(v => (v || '').toLowerCase().includes(q));
   const tabs = () => subTabs($('#utabs'), tabKeys.map(k => [k, k === 'karyawan' ? `Karyawan <span class="cnt">${emps.filter(x => x.active).length}</span>` : `${ROLE_LABEL[k]} <span class="cnt">${all.filter(u => u.role === k).length}</span>`]), US, 'role', draw);
   const draw = () => {
-    const q = US.q.trim().toLowerCase(), pel = US.role === 'pelanggan';
+    const q = US.q.trim().toLowerCase(), pel = US.role === 'pelanggan' && !kasir;
     if (US.role === 'karyawan') return drawEmp(q);
     $('#unew').textContent = '+ ' + (owner ? ROLE_LABEL[US.role] : 'Pelanggan');
     $('#utbl thead').innerHTML = `<tr><th>Nama</th><th>No HP</th>${pel ? '<th class="r">Total belanja</th><th class="r">Bon</th>' : ''}<th>Status</th><th></th></tr>`;
@@ -2249,10 +2251,11 @@ async function viewUsers() {
       <td data-l="No HP">${esc(u.phone) || '<span class="muted">—</span>'}</td>
       ${pel ? `<td data-l="Total belanja" class="r num"><b>${rp(sp(u).total)}</b><div class="muted sm">${sp(u).trx}× belanja</div></td><td data-l="Bon" class="r num">${sp(u).bon ? `<span class="badge warn">${rp(sp(u).bon)}</span>` : '<span class="muted">—</span>'}</td>` : ''}
       <td data-l="Status">${u.disabled ? '<span class="badge bad">nonaktif</span>' : '<span class="badge ok">aktif</span>'}</td>
-      <td class="r">${pel ? `<button class="btn sm" data-c="${u.id}">Buka</button>` : owner ? `<button class="btn sm" data-u="${u.id}">Ubah</button>` : ''}</td></tr>`).join('')
+      <td class="r">${kasir ? `<button class="btn sm" data-bon="${u.id}">Bon</button>` : pel ? `<button class="btn sm" data-c="${u.id}">Buka</button>` : owner ? `<button class="btn sm" data-u="${u.id}">Ubah</button>` : ''}</td></tr>`).join('')
       : `<tr><td colspan="5" class="empty">${q ? 'Tidak ada yang cocok.' : `Belum ada ${ROLE_LABEL[US.role].toLowerCase()}.`}</td></tr>`;
     $('#utbl').querySelectorAll('[data-u]').forEach(b => b.onclick = () => editUser(all.find(u => u.id === b.dataset.u)));
     $('#utbl').querySelectorAll('[data-c]').forEach(b => b.onclick = () => viewCustomer(all.find(u => u.id === b.dataset.c), viewUsers));
+    $('#utbl').querySelectorAll('[data-bon]').forEach(b => b.onclick = () => { const u = all.find(x => x.id === b.dataset.bon); openBonSearch({ customer: u.id, label: u.name || u.username }); });
     $('#psort').classList.toggle('hidden', !pel);
     $('#psort').querySelectorAll('[data-ps]').forEach(b => { b.classList.toggle('on', b.dataset.ps === US.psort); b.onclick = () => { US.psort = b.dataset.ps; draw(); }; });
   };
@@ -2292,7 +2295,7 @@ async function viewUsers() {
     };
   };
   const load = async () => {
-    try { [all, emps, spend] = await Promise.all([list('users', { sort: 'name' }).then(r => r.items), list('employees', { sort: 'name' }).then(r => r.items), api('/api/customers/spend').catch(() => ({}))]); tabs(); draw(); }
+    try { [all, emps, spend] = await Promise.all([list('users', { sort: 'name' }).then(r => r.items), kasir ? [] : list('employees', { sort: 'name' }).then(r => r.items), kasir ? {} : api('/api/customers/spend').catch(() => ({}))]); tabs(); draw(); }
     catch (e) { $('#utbl tbody').innerHTML = `<tr><td colspan="5"><div class="err">${esc(e.message)}</div></td></tr>`; }
   };
   const editUser = u => {
@@ -2630,19 +2633,20 @@ function openWebOrder(o, reload) {
     ${o.note ? `<h3 class="sec">Catatan pembeli</h3><div>${esc(o.note)}</div>` : ''}
     ${proof ? `<h3 class="sec">Bukti bayar</h3>${/\.pdf$/i.test(o.proof) ? `<a class="btn sm" href="${proof}" target="_blank" rel="noopener">Buka PDF</a>` : `<a href="${proof}" target="_blank" rel="noopener"><img src="${proof}" alt="Bukti bayar" style="max-height:260px;border-radius:8px;border:1px solid var(--line)"></a>`}
       <div class="muted sm">Cocokkan dengan mutasi rekening: nominal persis ${rp(o.total)}.</div>` : ''}
-    ${pre && o.delivery === 'kirim' ? `<h3 class="sec">Cek ulang ongkir</h3><div class="row"><input class="input num" id="wfee" inputmode="numeric" value="${o.shipping}"><button class="btn" id="wfeeok" style="flex:0 0 auto">Ubah ongkir</button></div>` : ''}
+    ${pre && o.delivery === 'kirim' && isManager() ? `<h3 class="sec">Cek ulang ongkir</h3><div class="row"><input class="input num" id="wfee" inputmode="numeric" value="${o.shipping}"><button class="btn" id="wfeeok" style="flex:0 0 auto">Ubah ongkir</button></div>` : ''}
     ${o.status === 'diproses' && o.delivery === 'kirim' ? `<h3 class="sec">Nomor resi ${esc(o.courier)}</h3><input class="input" id="wresi" placeholder="mis. JX1234567890" autocapitalize="characters">` : ''}
     ${o.status === 'dikirim' ? `<h3 class="sec">Resi ${esc(o.courier)} ${esc(o.service)}</h3><div class="row"><input class="input num" id="wresi2" value="${esc(o.resi)}"><button class="btn" id="wresiok" style="flex:0 0 auto">Ubah resi</button></div>
       <a class="muted sm" href="${cekResi(o.resi)}" target="_blank" rel="noopener">Cek posisi paket di cekresi.com</a>` : ''}
     <div id="werr"></div>
     <div class="row" style="margin-top:14px;flex-wrap:wrap">
-      ${pre ? `<button class="btn primary" id="wconf">Pembayaran diterima</button>` : ''}
-      ${o.status === 'menunggu_verifikasi' ? `<button class="btn" id="wrej">Tolak bukti</button>` : ''}
+      ${pre && isManager() ? `<button class="btn primary" id="wconf">Pembayaran diterima</button>` : ''}
+      ${o.status === 'menunggu_verifikasi' && isManager() ? `<button class="btn" id="wrej">Tolak bukti</button>` : ''}
+      ${pre && !isManager() ? `<div class="muted sm">Pembayaran dicek oleh pemilik atau admin.</div>` : ''}
       ${o.status === 'diproses' ? (o.delivery === 'kirim' ? `<button class="btn primary" id="wship">Simpan resi & kirim</button>` : `<button class="btn primary" id="wready">Siap diambil</button>`) : ''}
       ${['dikirim', 'siap_diambil'].includes(o.status) ? `<button class="btn primary" id="wdone">${o.status === 'dikirim' ? 'Paket sudah diterima' : 'Sudah diambil'}</button>` : ''}
     </div>
     <a class="btn block wa" style="margin-top:8px" target="_blank" rel="noopener" href="${woWa(o)}">WhatsApp pembeli</a>
-    ${['menunggu_bayar', 'menunggu_verifikasi', 'diproses'].includes(o.status) ? `<button class="btn danger block" id="wcancel" style="margin-top:8px">Batalkan pesanan</button>` : ''}
+    ${['menunggu_bayar', 'menunggu_verifikasi', 'diproses'].includes(o.status) && isManager() ? `<button class="btn danger block" id="wcancel" style="margin-top:8px">Batalkan pesanan</button>` : ''}
     <h3 class="sec">Link pesanan</h3>
     ${links.track ? `<div class="linkrow"><span><b>Lacak</b> <span class="muted sm">untuk pembeli, tanpa login</span><a href="${esc(links.track)}" target="_blank" rel="noopener">${esc(links.track.replace(/^https?:\/\//, ''))}</a></span><button class="btn sm" data-copy="${esc(links.track)}">Salin</button></div>` : ''}
     <div class="linkrow"><span><b>Kasir</b> <span class="muted sm">untuk staf, perlu login</span><a href="${esc(links.pos)}">${esc(links.pos.replace(/^https?:\/\//, ''))}</a></span><button class="btn sm" data-copy="${esc(links.pos)}">Salin</button></div>
@@ -2673,7 +2677,7 @@ function openWebOrder(o, reload) {
   });
 }
 
-// ── pengiriman (owner/admin) ────────────────────────
+// ── pengiriman (owner/admin and the kasir login) ────
 // Paid web orders from packing to the buyer's door: type the resi, send the
 // buyer a WhatsApp with their tracking link, mark delivered.
 const SH_GROUPS = [

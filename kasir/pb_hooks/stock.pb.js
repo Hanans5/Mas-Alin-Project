@@ -1,12 +1,13 @@
 /// <reference path="../pb_data/types.d.ts" />
 
-// POST /api/stock/move — manual stock change by owner/admin.
+// POST /api/stock/move — manual stock change by owner, admin or the shared
+// kasir login (the karyawan receive and count stock; Mas Alin, 2026-10-07).
 // Body: { product, type: "masuk"|"keluar"|"opname", qty?, counted?, note? }
 //   masuk  qty > 0 arrives       keluar  qty > 0 leaves (rusak, hilang, retur ke supplier)
 //   opname counted = physical count; the difference is recorded
 routerAdd("POST", "/api/stock/move", (e) => {
   const L = require(`${__hooks}/lib.js`);
-  L.requireRole(e, ["owner", "admin"]);
+  L.requireRole(e, ["owner", "admin", "kasir"]);
   const b = e.requestInfo().body || {};
   if (["masuk", "keluar", "opname"].indexOf(b.type) === -1) throw new BadRequestError("Tipe harus masuk, keluar atau opname.");
   if (b.type !== "opname" && !(L.int(b.qty, "Qty") > 0)) throw new BadRequestError("Qty harus lebih dari 0.");

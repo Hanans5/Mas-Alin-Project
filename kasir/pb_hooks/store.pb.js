@@ -186,8 +186,11 @@ routerAdd("POST", "/api/store/orders/{number}/cancel", (e) => {
 routerAdd("POST", "/api/store/admin/{id}/{action}", (e) => {
   const L = require(`${__hooks}/lib.js`);
   const SL = require(`${__hooks}/store_lib.js`);
-  L.requireRole(e, ["owner", "admin"]);
+  L.requireRole(e, ["owner", "admin", "kasir"]);
   const action = e.request.pathValue("action");
+  // The kasir login packs and ships; money decisions (confirm a payment,
+  // reject a proof, change the ongkir, cancel) stay with owner/admin.
+  if (L.role(e) === "kasir" && ["ship", "resi", "ready", "complete"].indexOf(action) === -1) throw new ForbiddenError("Hanya pemilik atau admin yang bisa melakukan ini.");
   const b = e.requestInfo().body || {};
   const who = e.auth.getString("name") || e.auth.getString("username");
 

@@ -69,8 +69,10 @@ check("stock not editable directly", directStock.status >= 400, directStock.stat
 
 const masuk = await api(A, "POST", "/api/stock/move", { product: pid, type: "masuk", qty: 10, note: "kiriman" });
 check("stock masuk +10", masuk.status === 200 && masuk.body.stock_after === 10, masuk.body);
-const kasirMove = await api(K, "POST", "/api/stock/move", { product: pid, type: "masuk", qty: 10 });
-check("kasir cannot move stock", kasirMove.status === 403, kasirMove.status);
+// Since 2026-10-07 the shared kasir login (the karyawan) receives and counts stock too.
+const kasirIn = await api(K, "POST", "/api/stock/move", { product: pid, type: "masuk", qty: 3, note: "kasir terima barang" });
+const kasirOut = await api(K, "POST", "/api/stock/move", { product: pid, type: "keluar", qty: 3, note: "kasir koreksi" });
+check("kasir can move stock (in 3, out 3 → back to 10)", kasirIn.status === 200 && kasirOut.status === 200 && kasirOut.body.stock_after === 10, [kasirIn.status, kasirOut.body]);
 
 const methods = (await api(K, "GET", "/api/collections/payment_methods/records")).body.items;
 const tunai = methods.find((m) => m.name === "Tunai").id;
