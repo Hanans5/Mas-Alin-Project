@@ -102,6 +102,8 @@ routerAdd("POST", "/api/pos/void/{id}", (e) => {
     let sale;
     try { sale = tx.findRecordById("sales", e.request.pathValue("id")); } catch (_) { throw new NotFoundError("Transaksi tidak ditemukan."); }
     if (sale.getString("status") === "batal") throw new BadRequestError("Transaksi sudah dibatalkan.");
+    if (L.isLegacySale(sale)) throw new BadRequestError("Transaksi sistem lama tidak bisa dibatalkan.");
+    if (sale.getString("preorder")) throw new BadRequestError("Transaksi dari pre-order tidak bisa dibatalkan; DP-nya sudah tercatat di Buku Kas.");
     const number = sale.getString("number");
     // Its returned items are already back on the shelf through the swap.
     const swaps = tx.findRecordsByFilter("sales", "ref_sale = {:s} && status != 'batal'", "", 0, 0, { s: sale.id });
@@ -147,6 +149,7 @@ routerAdd("GET", "/api/pos/swap/{key}", (e) => {
   const L = require(`${__hooks}/lib.js`);
   L.requireRole(e, ["owner", "admin", "kasir"]);
   const sale = L.findSale(e.app, e.request.pathValue("key"));
+  if (L.isLegacySale(sale)) throw new BadRequestError("Transaksi sistem lama tidak bisa ditukar.");
   if (sale.getString("status") === "batal") throw new BadRequestError("Transaksi ini sudah dibatalkan.");
   if (sale.getString("kind") === "tukar") throw new BadRequestError("Ini transaksi tukar. Tukar dari transaksi penjualan aslinya.");
   e.app.expandRecord(sale, ["customer"], null);
@@ -167,6 +170,7 @@ routerAdd("POST", "/api/pos/swap", (e) => {
   let saleId = "";
   e.app.runInTransaction((tx) => {
     const orig = L.findSale(tx, b.sale);
+    if (L.isLegacySale(orig)) throw new BadRequestError("Transaksi sistem lama tidak bisa ditukar.");
     if (orig.getString("status") === "batal") throw new BadRequestError("Transaksi asli sudah dibatalkan.");
     if (orig.getString("kind") === "tukar") throw new BadRequestError("Tukar dari transaksi penjualan aslinya.");
     const can = {};

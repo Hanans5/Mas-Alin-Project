@@ -226,6 +226,85 @@ function returnable(tx, sale) {
   }));
 }
 // A sale by its number (TRX-261006-0001, any case) or record id.
+// ── Pre-Order ──
+// Prices a pre-order like the till (kodian per full 20 pcs, "kodian" and
+// custom price owner only, manual discount owner/admin) but without a stock
+// check: the goods may not exist yet. Custom lines ({ custom: true, name,
+// price, hpp?, qty }) are typed by owner/admin and have no product.
+function pricePreorder(tx, e, b) {
+  const items = Array.isArray(b.items) ? b.items : [];
+  if (!items.length) throw new BadRequestError("Keranjang kosong.");
+  if (items.length > 200) throw new BadRequestError("Terlalu banyak item.");
+  const manager = ["owner", "admin"].includes(role(e));
+  const want = {}, lines = [];
+  let subtotal = 0;
+  for (const it of items) {
+    const q = int(it.qty, "Qty");
+    if (q < 1) throw new BadRequestError("Qty minimal 1.");
+    if (it.custom) {
+      if (!manager) throw new ForbiddenError("Hanya pemilik/admin yang bisa menambah barang custom.");
+      const name = String(it.name || "").trim().slice(0, 120);
+      if (!name) throw new BadRequestError("Isi nama barang custom.");
+      const price = int(it.price, "Harga"), hpp = int(it.hpp || 0, "Modal");
+      if (price < 1) throw new BadRequestError("Harga barang custom harus lebih dari 0.");
+      if (hpp < 0) throw new BadRequestError("Modal tidak boleh minus.");
+      lines.push({ product: "", name, qty: q, price, hpp, tier: "custom", subtotal: price * q });
+      subtotal += price * q;
+      continue;
+    }
+    const w = want[it.product] || (want[it.product] = { qty: 0, price: null, kodian: false });
+    w.qty += q;
+    if (it.kodian === true) {
+      if (role(e) !== "owner") throw new ForbiddenError("Hanya pemilik yang bisa memakai harga kodian.");
+      w.kodian = true;
+    }
+    if (it.price !== undefined && it.price !== null && it.price !== "") {
+      if (role(e) !== "owner") throw new ForbiddenError("Hanya pemilik yang bisa mengubah harga.");
+      const pr = int(it.price, "Harga");
+      if (pr < 0) throw new BadRequestError("Harga tidak boleh minus.");
+      w.price = pr;
+    }
+  }
+  for (const pid in want) {
+    let p;
+    try { p = tx.findRecordById("products", pid); } catch (_) { throw new BadRequestError("Produk tidak ditemukan."); }
+    if (!p.getBool("active")) throw new BadRequestError(`${p.getString("name")} tidak aktif.`);
+    if (want[pid].kodian && !(p.getInt("price_kodi") > 0)) throw new BadRequestError(`${p.getString("name")} belum punya harga kodian.`);
+    for (const l of splitPrice(p, want[pid].qty, want[pid].price, want[pid].kodian)) {
+      lines.push({ product: p.id, name: p.getString("name"), qty: l.qty, price: l.price, hpp: p.getInt("hpp"), tier: l.tier, subtotal: l.price * l.qty });
+      subtotal += l.price * l.qty;
+    }
+  }
+  let customer = null;
+  if (!b.customer) throw new BadRequestError("Pre-order harus atas nama pelanggan.");
+  try { customer = tx.findRecordById("users", b.customer); } catch (_) { throw new BadRequestError("Pelanggan tidak ditemukan."); }
+  if (customer.getString("role") !== "pelanggan") throw new BadRequestError("Pelanggan tidak valid.");
+  let discount = 0;
+  if (b.discount) {
+    if (!manager) throw new ForbiddenError("Kasir tidak bisa memberi diskon manual.");
+    discount = int(b.discount, "Diskon");
+    if (discount < 0) throw new BadRequestError("Diskon tidak boleh minus.");
+  }
+  discount = Math.min(discount, subtotal);
+  return { lines, subtotal, discount, total: subtotal - discount, customer };
+}
+function nextPoNumber(tx) {
+  const prefix = "PO-" + wibDate().slice(2).replace(/-/g, "") + "-";
+  const rows = query(tx, "SELECT number AS n FROM preorders WHERE number LIKE {:p} ORDER BY length(number) DESC, number DESC LIMIT 1", { p: prefix + "%" }, { n: "" });
+  return prefix + String((rows.length ? parseInt(rows[0].n.slice(prefix.length), 10) : 0) + 1).padStart(4, "0");
+}
+// Minimum DP for a pre-order total: settings.po_min_dp percent (owner sets), rounded up to Rp 1.000.
+function minDp(tx, total) {
+  const pct = Math.max(0, Math.min(100, settings(tx).getInt("po_min_dp")));
+  return Math.min(total, Math.ceil(total * pct / 100 / 1000) * 1000);
+}
+
+// Receipts rebuilt from the old system's totals (tools/migrasi/gen_sales.py):
+// their stock never left through this kasir, so they can't be voided or swapped.
+const LEGACY_NOTE = "Sistem lama";
+function isLegacySale(sale) {
+  return sale.getString("note").startsWith(LEGACY_NOTE);
+}
 function findSale(tx, key) {
   const k = String(key || "").trim();
   try { return tx.findFirstRecordByFilter("sales", "number = {:n}", { n: k.toUpperCase() }); } catch (_) {}
@@ -285,4 +364,24 @@ function takePayments(tx, b, total) {
   return { rows: kept, handed, kept: handed - change, change, short: Math.max(0, total - handed) };
 }
 
-module.exports = { takePayments, pickEmployee, returnable, findSale, idr, priceCart, splitPrice, KODI, wibDate, wibRange, role, requireRole, int, moveStock, nextSaleNumber, voucherDiscount, settings, query };
+// Old-system daily totals (legacy_sales) for WIB days d1..d2, oldest first.
+// hpp = what the old report's profit implies (sales − discount − profit).
+function legacyDays(tx, d1, d2) {
+  return query(tx, `SELECT day, total, count, items, discount, profit, total - discount - profit AS hpp
+      FROM legacy_sales WHERE day BETWEEN {:d1} AND {:d2} ORDER BY day`,
+    { d1, d2 }, { day: "", total: 0, count: 0, items: 0, discount: 0, profit: 0, hpp: 0 });
+}
+
+// The old system's period: first and last day in legacy_sales ("" when none).
+function legacySpan(tx) {
+  return query(tx, `SELECT COALESCE(MIN(day),'') AS first, COALESCE(MAX(day),'') AS last FROM legacy_sales`, {}, { first: "", last: "" })[0];
+}
+// Old-system totals of one kind (pelanggan, karyawan, produk) keyed by ref.
+function legacyTotals(tx, kind) {
+  const out = {};
+  for (const r of query(tx, `SELECT ref, total, trx, items, profit FROM legacy_totals WHERE kind = {:kind}`, { kind },
+    { ref: "", total: 0, trx: 0, items: 0, profit: 0 })) out[r.ref] = r;
+  return out;
+}
+
+module.exports = { pricePreorder, nextPoNumber, minDp, isLegacySale, legacySpan, legacyTotals, legacyDays, takePayments, pickEmployee, returnable, findSale, idr, priceCart, splitPrice, KODI, wibDate, wibRange, role, requireRole, int, moveStock, nextSaleNumber, voucherDiscount, settings, query };
