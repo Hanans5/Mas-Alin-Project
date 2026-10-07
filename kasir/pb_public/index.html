@@ -1788,7 +1788,7 @@ async function viewDash() {
 }
 
 // ── Dasbor overview (owner/admin): a period (Tahun ini by default), sales per
-// month (per day for one month), best pelanggan and karyawan sales. Built from
+// month (per day for one month), pelanggan performance and karyawan sales. Built from
 // /api/reports/sales and the Pelanggan/Karyawan report tables; profit is the
 // owner's only. The kasir login keeps the today-only Dasbor above.
 const OV = { p: 'year' };
@@ -1840,7 +1840,7 @@ async function dashOverview(el) {
           ${buckets.map(b => `<tr><td data-l="${byDay ? 'Tanggal' : 'Bulan'}">${b.full}</td><td data-l="Transaksi" class="r num">${b.count.toLocaleString('id-ID')}</td><td data-l="Omzet" class="r num">${rp(b.total)}</td></tr>`).join('')}</tbody></table></details>
       </section>
       <div class="two" style="margin-top:16px">
-        <section class="card"><h3 class="sec" style="margin:14px 14px 0">Pelanggan terbaik</h3>${hbars(people.slice(0, 8), r => `${r.transaksi.toLocaleString('id-ID')}× belanja · rata-rata ${rp(Math.round(r.penjualan / Math.max(1, r.transaksi)))}`, 'Belum ada belanja pelanggan di periode ini.')}
+        <section class="card"><h3 class="sec" style="margin:14px 14px 0">Performa pelanggan</h3>${hbars(people.slice(0, 8), r => `${r.transaksi.toLocaleString('id-ID')}× belanja · rata-rata ${rp(Math.round(r.penjualan / Math.max(1, r.transaksi)))}`, 'Belum ada belanja pelanggan di periode ini.')}
           <div class="ov-foot"><span>${umum ? `Pembeli umum (tanpa member): ${rp(umum.penjualan)}` : ''}</span><button class="btn sm" data-rep="pelanggan">Laporan lengkap</button></div></section>
         <section class="card"><h3 class="sec" style="margin:14px 14px 0">Penjualan karyawan</h3>${hbars(emp.rows, r => `${r.transaksi.toLocaleString('id-ID')} transaksi · ${r.items.toLocaleString('id-ID')} pcs`, 'Belum ada penjualan di periode ini.')}
           <div class="ov-foot"><span>"Toko" = dilayani pemilik atau pesanan online</span><button class="btn sm" data-rep="karyawan">Laporan lengkap</button></div></section>
