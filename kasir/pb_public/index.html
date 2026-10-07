@@ -456,7 +456,8 @@ function renderLogin(err) {
 const TABS = {
   owner:     [['dash', 'Dasbor'], ['pos', 'Kasir'], ['tx', 'Transaksi'], ['online', 'Pesanan Online'], ['ship', 'Pengiriman'], ['prod', 'Produk'], ['stock', 'Stok'], ['fin', 'Keuangan'], ['rep', 'Laporan'], ['users', 'Pengguna'], ['set', 'Pengaturan']],
   admin:     [['dash', 'Dasbor'], ['pos', 'Kasir'], ['tx', 'Transaksi'], ['online', 'Pesanan Online'], ['ship', 'Pengiriman'], ['prod', 'Produk'], ['stock', 'Stok'], ['fin', 'Keuangan'], ['rep', 'Laporan'], ['users', 'Pengguna'], ['set', 'Pengaturan']],
-  kasir:     [['pos', 'Kasir'], ['tx', 'Transaksi Hari Ini'], ['users', 'Pelanggan'], ['online', 'Pesanan Online'], ['ship', 'Pengiriman'], ['stock', 'Stok']],
+  // kasir = the karyawan's shared login; it opens on Kasir (first entry), the menu keeps NAV order
+  kasir:     [['pos', 'Kasir'], ['dash', 'Dasbor'], ['tx', 'Transaksi'], ['users', 'Pelanggan'], ['fin', 'Keuangan'], ['online', 'Pesanan Online'], ['ship', 'Pengiriman'], ['stock', 'Stok']],
   pelanggan: [['me', 'Akun Saya']],
 };
 async function startApp() {
@@ -1153,7 +1154,7 @@ async function viewTx() {
   let day = wibToday();
   $('#view').innerHTML = `
     <div class="row" style="max-width:420px;margin-bottom:12px">
-      ${kasir ? `<div class="muted" style="align-self:center">Transaksi kamu hari ini</div>` : `<input class="input" type="date" id="td" value="${day}" max="${day}">`}
+      <input class="input" type="date" id="td" value="${day}" max="${day}" aria-label="Tanggal">
       <button class="btn" id="tbon" style="flex:0 0 auto">Bayar bon</button>
       <button class="btn" id="tswap" style="flex:0 0 auto">Tukar barang</button>
     </div>
@@ -1797,7 +1798,7 @@ async function finExpenses(el) {
         <td data-l="Keterangan">${esc(x.note) || '<span class="muted">—</span>'}</td>
         <td data-l="Metode">${esc(x.expand?.payment_method?.name || '—')}</td>
         <td data-l="Jumlah" class="r num"><b>${rp(x.amount)}</b></td>
-        <td class="r"><button class="btn sm" data-e="${x.id}">Ubah</button></td></tr>`).join('') : `<tr><td colspan="6" class="empty">Tidak ada pengeluaran di periode ini.</td></tr>`;
+        <td class="r">${isManager() ? `<button class="btn sm" data-e="${x.id}">Ubah</button>` : ''}</td></tr>`).join('') : `<tr><td colspan="6" class="empty">Tidak ada pengeluaran di periode ini.</td></tr>`;
       $('#etbl').querySelectorAll('[data-e]').forEach(b => b.onclick = () => editExpense(r.items.find(x => x.id === b.dataset.e)));
     } catch (e) { $('#etbl tbody').innerHTML = `<tr><td colspan="6"><div class="err">${esc(e.message)}</div></td></tr>`; }
   };

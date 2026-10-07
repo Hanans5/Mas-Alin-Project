@@ -147,7 +147,7 @@ backups/        database snapshot from before the simulation
 |---|---|
 | owner | everything |
 | admin | everything except Laba Rugi, Buku Kas, managing users, and shop settings |
-| kasir | the shared karyawan login: Kasir, Transaksi Hari Ini, Pelanggan (no spending; take bon), Pesanan Online + Pengiriman (ship, resi, pickup, complete; not confirm/reject/cancel/ongkir), Stok (in/out/opname) — since 2026-10-07 |
+| kasir | the shared karyawan login (opens on Kasir): Dasbor (today only, no profit), Kasir, Transaksi (any date, all sales), Pelanggan (no spending; take bon), Keuangan → Pengeluaran (read + add, no edit/delete) and Piutang (with history), Pesanan Online + Pengiriman (ship, resi, pickup, complete; not confirm/reject/cancel/ongkir), Stok (in/out/opname). Never Buku Kas, Laba Rugi, Laporan, Produk, Pengguna, Pengaturan, void. Since 2026-10-07 |
 | pelanggan | their own purchases, points and debts |
 
 **Owner tabs:**

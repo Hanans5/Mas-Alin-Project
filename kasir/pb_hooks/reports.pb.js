@@ -10,9 +10,9 @@ routerAdd("GET", "/api/reports/dashboard", (e) => {
   L.requireRole(e, ["owner", "admin", "kasir"]);
   const day = L.wibDate();
   const r = L.wibRange(day, day);
-  const isKasir = L.role(e) === "kasir";
-  // A kasir sees only their own till.
-  const mine = isKasir ? " AND s.cashier = {:me}" : "";
+  // Today only, for the whole shop: the kasir login is shared by the karyawan
+  // (since 2026-10-07 it sees every transaction). Profit stays owner-only.
+  const mine = "";
   const p = { from: r.from, to: r.to, me: e.auth.id };
 
   const today = L.query(e.app,
@@ -33,7 +33,7 @@ routerAdd("GET", "/api/reports/dashboard", (e) => {
     {}, { id: "", name: "", sku: "", stock: 0, min_stock: 0 });
 
   const out = { date: day, today, top, lowStock };
-  if (!isKasir) {
+  {
     out.receivables = L.query(e.app,
       `SELECT COUNT(*) AS count, COALESCE(SUM(amount - paid),0) AS amount FROM receivables WHERE status = 'belum'`,
       {}, { count: 0, amount: 0 })[0];

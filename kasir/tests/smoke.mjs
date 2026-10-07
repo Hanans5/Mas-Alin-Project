@@ -173,6 +173,16 @@ for (const u of ["alin", "admin", "kasir", "budi"]) {
   if (rec) await api(su, "PATCH", `/api/collections/users/records/${rec.id}`, { disabled: true });
 }
 
+// The kasir login (karyawan) since 2026-10-07: all transactions, Pengeluaran
+// (read + add), Piutang; never Buku Kas, Laba Rugi, reports or editing expenses.
+const kSales = await api(K, "GET", "/api/collections/sales/records?perPage=1");
+const aSales = await api(A, "GET", "/api/collections/sales/records?perPage=1");
+check("kasir sees every transaction (same count as admin)", kSales.status === 200 && kSales.body.totalItems === aSales.body.totalItems, [kSales.body.totalItems, aSales.body.totalItems]);
+check("kasir reads Pengeluaran and Piutang", (await api(K, "GET", "/api/collections/expenses/records?perPage=1")).status === 200 && (await api(K, "GET", "/api/collections/receivables/records?perPage=1")).status === 200);
+check("kasir: no Buku Kas / Laba Rugi / Laporan", (await api(K, "GET", `/api/reports/cashbook?from=${today}&to=${today}`)).status === 403 && (await api(K, "GET", `/api/reports/profit-loss?from=${today}&to=${today}`)).status === 403 && (await api(K, "GET", `/api/reports/table?type=penjualan&from=${today}&to=${today}`)).status === 403);
+const kDash = await api(K, "GET", "/api/reports/dashboard");
+check("kasir dashboard: today, no profit", kDash.status === 200 && kDash.body.today.gross_profit === undefined, kDash.body);
+
 if (EMP) await api(su, "PATCH", `/api/collections/employees/records/${EMP}`, { active: false });
 
 console.log(failures ? `\n${failures} FAILED` : "\nALL PASSED");
