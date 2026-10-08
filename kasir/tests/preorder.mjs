@@ -28,6 +28,8 @@ const cat = (await api(O, "GET", "/api/collections/categories/records?perPage=1"
 const prod = (await api(O, "POST", "/api/collections/products/records", { name: "Uji PO " + run, sku: "PO-" + run, category: cat.id, unit: "pcs", hpp: 40000, price: 50000, price_kodi: 45000, min_stock: 0, active: true, hide_online: true })).body;
 await api(O, "POST", "/api/stock/move", { product: prod.id, type: "masuk", qty: 5, note: "uji pre-order" });
 const emp = (await api(O, "POST", "/api/collections/employees/records", { name: "Uji PO " + run, active: true })).body;
+const pct = (await api(O, "GET", "/api/collections/settings/records?perPage=1")).body.items[0].po_min_dp ?? 30;   // owner's setting
+const minOf = (total) => Math.min(total, Math.ceil(total * pct / 100 / 1000) * 1000);
 const stock = async () => (await api(O, "GET", `/api/collections/products/records/${prod.id}`)).body.stock;
 const today = new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10);
 const cash = async () => (await api(O, "GET", `/api/reports/cashbook?from=${today}&to=${today}`)).body;
@@ -48,7 +50,7 @@ check("kasir 'Harga kodian' on a pre-order line: 3 × 45.000", pvKK.status === 2
 await api(O, "PATCH", `/api/collections/products/records/${prod.id}`, { price_jumbo: 55000 });
 check("kasir can't use 'Harga jumbo' on a pre-order (403)", (await api(K, "POST", "/api/po/preview", { items: [{ product: prod.id, qty: 2, tier: "jumbo" }], customer: cust.id })).status === 403);
 await api(O, "PATCH", `/api/collections/products/records/${prod.id}`, { price_jumbo: 0 });
-check("min DP is 30 % rounded up to Rp 1.000", pv.body.min_dp === Math.ceil(pv.body.total * 0.3 / 1000) * 1000, pv.body);
+check(`min DP is the owner's ${pct} % rounded up to Rp 1.000`, pv.body.min_dp === minOf(pv.body.total), pv.body);
 check("pre-order needs a pelanggan", (await api(K, "POST", "/api/po/preview", { items })).status === 400);
 
 // 2. create: DP below the minimum refused; then Split DP
@@ -93,16 +95,16 @@ check("a finished pre-order takes no more money", (await api(K, "POST", `/api/po
 // 5. custom items and roles
 const custom = [{ custom: true, name: "Hem motif khusus " + run, price: 150000, hpp: 90000, qty: 2 }];
 check("kasir can't add a custom item", (await api(K, "POST", "/api/po/preview", { items: custom, customer: cust.id })).status === 403);
-const c2 = await api(O, "POST", "/api/po/create", { items: custom, customer: cust.id, employee: emp.id, payments: [{ method: TUNAI, amount: 90000 }] });
+const c2 = await api(O, "POST", "/api/po/create", { items: custom, customer: cust.id, employee: emp.id, payments: [{ method: TUNAI, amount: minOf(300000) }] });
 check("owner creates a pre-order with a custom item", c2.status === 200 && c2.body.preorder.total === 300000, c2.body);
 check("kasir can't cancel", (await api(K, "POST", `/api/po/${c2.body.preorder.id}/cancel`, { mode: "refund", reason: "uji", method: TUNAI })).status === 403);
 const ref = await api(O, "POST", `/api/po/${c2.body.preorder.id}/cancel`, { mode: "refund", reason: "uji batal", method: TUNAI });
 check("cancel with DP refunded", ref.status === 200 && ref.body.preorder.status === "batal" && ref.body.preorder.cancel_mode === "refund", ref.body);
 lines = await poLines(c2.body.preorder.number);
-check("Buku Kas: DP in, then the same amount out", lines.length === 2 && lines.some((l) => l.type === "keluar" && l.amount === 90000), lines);
+check("Buku Kas: DP in, then the same amount out", lines.length === 2 && lines.some((l) => l.type === "keluar" && l.amount === minOf(300000)), lines);
 
 // 6. cancel with DP kept → other income in Laba Rugi
-const c3 = await api(K, "POST", "/api/po/create", { items: [{ product: prod.id, qty: 1 }], customer: cust.id, employee: emp.id, payments: [{ method: TUNAI, amount: 50000 }] });
+const c3 = await api(K, "POST", "/api/po/create", { items: [{ product: prod.id, qty: 1 }], customer: cust.id, employee: emp.id, payments: [{ method: TUNAI, amount: 50000 }] });   // the whole price
 const pl0 = (await api(O, "GET", `/api/reports/profit-loss?from=${today}&to=${today}`)).body;
 await api(O, "POST", `/api/po/${c3.body.preorder.id}/cancel`, { mode: "hangus", reason: "tidak diambil" });
 const pl1 = (await api(O, "GET", `/api/reports/profit-loss?from=${today}&to=${today}`)).body;

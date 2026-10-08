@@ -430,6 +430,10 @@ const rp = n => 'Rp ' + Math.round(n || 0).toLocaleString('id-ID');
 const realRole = () => S.user?.role || '';
 const role = () => realRole() === 'superadmin' ? 'owner' : realRole();
 const isSuperadmin = () => realRole() === 'superadmin';
+// Mas Alin stays anonymous to buyers (2026-10-08): on struk and in Transaksi a
+// sale made from an owner login, or with no cashier (old-system receipts),
+// shows "Toko". Internal reports keep the real name.
+const cashierLabel = u => !u || u.role === 'owner' ? 'Toko' : (u.name || u.username);
 const isManager = () => role() === 'owner' || role() === 'admin';
 const isOwner = () => role() === 'owner';
 // The cart's "Harga" button: kasir and admin get Per pcs + Kodian, the owner everything.
@@ -1330,8 +1334,8 @@ function poSlipHtml(r) {
   const lines = s => esc(s || '').split('\n').map(l => `<div class="c">${l || '&nbsp;'}</div>`).join('');
   return `<div class="receipt">${receiptHead()}<hr>
     <div class="c"><b>NOTA PRE-ORDER</b></div>
-    <div>${esc(po.number)}</div><div>${fmtTime(po.created)}${x.cashier ? ' · ' + esc(x.cashier.name || x.cashier.username) : ''}</div>
-    ${x.employee ? `<div>Staf: ${esc(x.employee.name)}</div>` : ''}
+    <div>${esc(po.number)}</div><div>${fmtTime(po.created)} · ${esc(cashierLabel(x.cashier))}</div>
+    <div>Staf: ${esc(x.employee ? x.employee.name : 'Toko')}</div>
     ${x.customer ? `<div>Member: ${esc(x.customer.name || x.customer.username)}</div>` : ''}
     ${po.ready_date ? `<div>Perkiraan siap: ${fd(po.ready_date.slice(0, 10))}</div>` : ''}
     <hr>${items.map(i => `<div>${esc(i.name)}${i.tier === 'custom' ? ' <small>(custom)</small>' : TIER_NOTE[i.tier] ? ` <small>(${TIER_NOTE[i.tier]})</small>` : ''}</div><div class="r"><span>${i.qty} x ${n(i.price)}</span><span>${n(i.subtotal)}</span></div>`).join('')}
@@ -1455,8 +1459,8 @@ function receiptHtml(sale, items, pays) {
     ${receiptHead()}
     <hr>
     <div>${esc(sale.number)}</div>
-    <div>${fmtTime(sale.created)} · ${esc(x.cashier?.name || x.cashier?.username || '')}</div>
-    ${x.employee ? `<div>Staf: ${esc(x.employee.name)}</div>` : ''}
+    <div>${fmtTime(sale.created)} · ${esc(cashierLabel(x.cashier))}</div>
+    <div>Staf: ${esc(x.employee ? x.employee.name : 'Toko')}</div>
     ${x.customer ? `<div>Member: ${esc(x.customer.name || x.customer.username)}</div>` : ''}
     <hr>
     ${sale.kind === 'tukar' ? `<div><b>TUKAR BARANG</b>${x.ref_sale ? ' dari ' + esc(x.ref_sale.number) : ''}</div><hr>` : ''}
@@ -1476,7 +1480,7 @@ function receiptHtml(sale, items, pays) {
 }
 function receiptText(sale, items, pays) {
   const st = S.settings;
-  return [`*${st.store_name}*`, sale.number, fmtTime(sale.created), sale.expand?.employee ? `Staf: ${sale.expand.employee.name}` : '', '',
+  return [`*${st.store_name}*`, sale.number, fmtTime(sale.created), `Staf: ${sale.expand?.employee ? sale.expand.employee.name : 'Toko'}`, '',
     sale.kind === 'tukar' ? 'Tukar barang' : '',
     ...items.map(i => `${i.name}${TIER_NOTE[i.tier] ? ` (${TIER_NOTE[i.tier]})` : ''}\n  ${i.qty} x ${rp(i.price)} = ${rp(i.subtotal)}`), '',
     sale.discount ? `Diskon: -${rp(sale.discount)}` : '', `*Total: ${rp(sale.total)}*`,
@@ -1551,8 +1555,8 @@ async function escposReceipt(sale, items, pays) {
   if (head) wrap(head).forEach(l => line(l));
   align(0); sep();
   line(sale.number);
-  wrap(`${fmtTime(sale.created)} - ${x.cashier?.name || x.cashier?.username || ''}`).forEach(l => line(l));
-  if (x.employee) wrap('Staf: ' + x.employee.name).forEach(l => line(l));
+  wrap(`${fmtTime(sale.created)} - ${cashierLabel(x.cashier)}`).forEach(l => line(l));
+  wrap('Staf: ' + (x.employee ? x.employee.name : 'Toko')).forEach(l => line(l));
   if (x.customer) wrap('Member: ' + (x.customer.name || x.customer.username)).forEach(l => line(l));
   sep();
   if (sale.kind === 'tukar') { bold(1); line('TUKAR BARANG'); bold(0); if (x.ref_sale) line('dari ' + x.ref_sale.number); sep(); }
@@ -1734,7 +1738,7 @@ async function viewTx() {
         <button class="tx" data-s="${s.id}">
           <span><b class="num">${esc(s.number)}</b> <span class="badge ${s.status === 'lunas' ? 'ok' : s.status === 'batal' ? 'bad' : 'warn'}">${s.status}</span>${isLegacy(s) ? ' <span class="badge">sistem lama</span>' : ''}${s.kind === 'tukar' ? ` <span class="badge">tukar${s.expand?.ref_sale ? ' · ' + esc(s.expand.ref_sale.number) : ''}</span>` : ''}</span>
           <b class="num">${rp(s.total)}</b>
-          <small class="muted">${fmtTime(s.created)} · ${esc(s.expand?.customer?.name || 'Umum')}${s.expand?.employee ? ' · ' + esc(s.expand.employee.name) : kasir ? '' : ' · ' + esc(s.expand?.cashier?.name || s.expand?.cashier?.username || '')}</small>
+          <small class="muted">${fmtTime(s.created)} · ${esc(s.expand?.customer?.name || 'Umum')}${s.expand?.employee ? ' · ' + esc(s.expand.employee.name) : ' · ' + esc(cashierLabel(s.expand?.cashier))}</small>
           <small class="muted">${esc(s.expand?.payment_method?.name || '')}</small>
         </button>`;
       const wire = () => $('#tlist').querySelectorAll('[data-s]').forEach(b => b.onclick = async () => {

@@ -1,5 +1,21 @@
 # Nelin Batik kasir: changelog
 
+## 2026-10-08: Old-system receipts from the real receipt list
+- `tools/migrasi/rebuild_real.py` rebuilds receipts TRX0001… from the old system's Laporan Kas (cashflow page). Every receipt now has its real amount, day, pelanggan and Tunai/Transfer, and bons keep their own data. The items on each receipt, the karyawan and the time are still fitted, so the totals per day, pelanggan, karyawan and produk match the old reports exactly. Only "Sistem lama" receipts are replaced; kasir sales and pre-orders stay. Totals, Buku Kas and Laba Rugi don't move. Rerunnable; run `add_cashflow_extra.py` again afterwards, never `fix_methods.py`.
+
+## 2026-10-08: "Toko" instead of the owner's name on receipts
+- A receipt made from an owner login, or with no cashier (old-system receipts), shows "Toko" on screen, in print, on ESC/POS and in Transaksi. Receipts without a karyawan print "Staf: Toko". Internal reports keep the real name.
+
+## 2026-10-08: Superadmin role
+- New role `superadmin` with the owner's rights everywhere (hooks map it to owner; API rules allow it). The badge reads "SUPERADMIN". Limits: a superadmin can't edit, disable or delete an owner account, or give anyone the owner or superadmin role. A Superadmin tab sits in Pengguna. Migration `1791180000_superadmin`; tests `tests/superadmin.mjs`.
+
+## 2026-10-08: Kasir sees only this week's Pengeluaran
+- The kasir login's Pengeluaran shows "Minggu ini" (Monday to today) only. The records API no longer lists expenses to a kasir; `GET /api/expenses/week` serves them. A kasir can still add one and see what it saved today. Migration `1791190000_kasir_week_expenses`; tests `tests/kasir-expenses.mjs`.
+
+## 2026-10-08: Transaksi per period, Karyawan page
+- Transaksi uses the same period chips as Laporan (plus a date range and a karyawan filter). The cards come from `GET /api/tx/summary`; the list loads 100 at a time.
+- Sidebar **Karyawan** is its own page: sales per karyawan for a period (Laba for the owner only), a Toko row and a Total. A name opens that karyawan's transactions. Pengguna → Karyawan stays user settings only.
+
 ## 2026-10-08: Tunai / Transfer for the old-system history
 - From the old system's cashflow page (Laporan Kas, saved privately in `backups/migrasi-data/`): every day up to 7 Okt now has the old system's exact Tunai and Transfer in Buku Kas. The import had booked all old sales as Tunai. Only the payment method of "Sistem lama" receipts changed (`tools/migrasi/fix_methods.py`); amounts, items and totals did not. Two receipts are split over both methods (they show under Split).
 - The sales made in the old system after the import (8 Okt) were added as "Sistem lama" receipts with their real number, amount, method and pelanggan; the old return is a manual Buku Kas entry; one old bon payment moved to its cashflow day (`tools/migrasi/add_cashflow_extra.py`).

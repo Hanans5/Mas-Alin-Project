@@ -85,7 +85,8 @@ def main():
         SELECT p.id, p.name, p.price, p.hpp FROM products p JOIN sale_items i ON i.product = p.id
          WHERE p.active AND p.price > 0 GROUP BY p.id ORDER BY SUM(i.qty) DESC""")]
     new = [r for r in cf if (m := re.match(r"Penjualan #TRX(\d+) a/n (.*)$", r["text"])) and int(m.group(1)) > last]
-    for k, r in enumerate(new):
+    new.sort(key=lambda r: int(re.search(r"#TRX(\d+)", r["text"]).group(1)))  # in number order, as they were made
+    for r in new:
         number, who = re.match(r"Penjualan #(TRX\d+) a/n (.*)$", r["text"]).groups()
         if cur.execute("SELECT 1 FROM sales WHERE number = ?", (number,)).fetchone():
             continue
@@ -95,7 +96,9 @@ def main():
         lines = items_for(r["in"], popular)
         if not lines:
             print(f"FAIL {number}: no product mix adds up to {r['in']}"); ok = False; continue
-        created = stamp(r["day"], 9, 15 * k)
+        # 15 minutes apart from 09:00, after the old receipts already on that day
+        done = cur.execute("SELECT COUNT(*) FROM sales WHERE note LIKE 'Sistem lama%' AND date(datetime(created, '+7 hours')) = ?", (r["day"],)).fetchone()[0]
+        created = stamp(r["day"], 9, 15 * done)
         sid = rid()
         cur.execute("""INSERT INTO sales (id, number, cashier, customer, subtotal, discount, voucher, points_used, total, paid, change,
             payment_method, status, points_earned, note, created, updated, kind, ref_sale, employee)

@@ -486,4 +486,5 @@ def main():
     print(f"{'cash in (till + bon) = omzet':38} {'PASS' if till == total else f'FAIL {till} vs {total}'}  {till}")
     sys.exit(1 if bad else 0)
 
-main()
+if __name__ == "__main__":
+    main()
