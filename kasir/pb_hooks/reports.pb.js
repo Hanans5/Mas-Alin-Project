@@ -88,7 +88,7 @@ routerAdd("GET", "/api/reports/sales", (e) => {
      ) GROUP BY method ORDER BY paid DESC`,
     r, { method: "", count: 0, paid: 0 });
   const perCashier = L.query(e.app,
-    `SELECT COALESCE(NULLIF(u.name,''), u.username) AS cashier, COUNT(*) AS count, SUM(s.total) AS total
+    `SELECT COALESCE(NULLIF(u.name,''), u.username, 'Sistem lama (tanpa kasir)') AS cashier, COUNT(*) AS count, SUM(s.total) AS total
        FROM sales s LEFT JOIN users u ON u.id = s.cashier
       WHERE ${live} GROUP BY s.cashier ORDER BY total DESC`,
     r, { cashier: "", count: 0, total: 0 });
