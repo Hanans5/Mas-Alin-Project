@@ -1,5 +1,21 @@
 # Nelin Batik kasir: changelog
 
+## 2026-10-08: A4 invoice for the pelanggan
+- **📄 Invoice** in a receipt's struk popup and an invoice icon on every Transaksi row. It makes a public, read-only link `/invoice.html#<token>` (40 random characters, made once per sale) and offers **Lihat invoice**, **Unduh PDF** (print dialog, A4), **Salin link** and **Kirim WA** (wa.me with a short message and the link; the number is filled from the pelanggan and can be typed for Toko). Owner/admin can **Cabut link**: the old link stops working and the next one is new.
+- The invoice page has:
+  - logo, shop details and the current theme colour
+  - receipt number, date and status (LUNAS / DP / BELUM LUNAS / DIBATALKAN)
+  - pelanggan as code | name (masked phone)
+  - items with kodian/jumbo/kustom/retur notes, then Subtotal, Diskon, Grand Total, Total dibayar, Kembali and Sisa bayar
+  - every payment with its date and method: pre-order DP, till and bon payments
+  - Catatan in two columns
+  - signature lines for the pelanggan and the staff (the karyawan; "Toko" for the owner's login and old receipts)
+  - an optional promo panel
+- Works for old-system receipts too.
+- `GET /api/invoice/view/{token}` needs no login and returns only that invoice: no cost prices, ids or token. `sales.invoice_token` is hidden from the records API.
+- Pengaturan → Toko & Struk → Invoice: catatan/syarat (empty = the struk footer), promo image, title and "Berlaku s/d" date (the panel hides after that date).
+- Migration `1791220000_invoice`; hooks `invoice.pb.js`, `invoice_lib.js`; page `pb_public/invoice.html`; test `tests/invoice.mjs`.
+
 ## 2026-10-08: Burgundy colour themes
 - Pengaturan → Tampilan → Warna tema now has two groups: Mahogany (unchanged) and **Burgundy** with 8 shades: Burgundy, Deep Burgundy, Wine, Merlot, Bordeaux, Oxblood, Maroon, Claret. Each is a full theme in light and dark, with text colours computed to stay readable (every checked pair at least 4.5:1). The default and the current choice don't change.
 

@@ -183,7 +183,8 @@ main{padding:16px}
 .receipt{user-select:text;-webkit-user-select:text}
 .txsearch{position:relative;margin:4px 0 8px}.txsearch input::-webkit-search-cancel-button{display:none}.txsearch .input{padding-right:44px}.txsearch button{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:none;border:0;font-size:18px;line-height:1;padding:8px 10px;color:var(--muted);cursor:pointer}
 .txw{display:flex;border-bottom:1px solid var(--line)}.txw:last-child{border-bottom:0}.txw .tx{flex:1;border-bottom:0}
-.txdel{background:none;border:0;border-left:1px solid var(--line);color:var(--bad);padding:0 16px;cursor:pointer}.txdel:hover{background:var(--bad-soft)}.txdel svg{width:20px;height:20px;display:block}
+a.btn{text-decoration:none;color:inherit;text-align:center;display:inline-flex;align-items:center;justify-content:center}
+.txdel{background:none;border:0;border-left:1px solid var(--line);color:var(--bad);padding:0 16px;cursor:pointer}.txinv{color:var(--accent)}.txinv:hover{background:var(--accent-soft)!important}.txdel:hover{background:var(--bad-soft)}.txdel svg{width:20px;height:20px;display:block}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
 .stat{padding:14px}
 .stat small{color:var(--muted);font-weight:600}
@@ -1693,6 +1694,7 @@ async function showReceipt(sale, items, fresh, pays) {
     ${receiptHtml(sale, items, pays)}
     <div class="row">
       <button class="btn" id="rprint">🖨 Cetak</button>
+      ${role() !== 'pelanggan' && !fresh ? `<button class="btn" id="rinv">📄 Invoice</button>` : ''}
       ${cust?.phone ? `<a class="btn" id="rwa" target="_blank" rel="noopener" href="https://wa.me/${waNumber(cust.phone)}?text=${encodeURIComponent(receiptText(sale, items, pays))}">WhatsApp</a>` : ''}
     </div>
     ${legacy ? `<div class="muted sm" style="margin-top:8px">Transaksi sistem lama: total per hari, pelanggan, karyawan dan produk sesuai laporan lama; rincian barang per nota disimulasikan. Tidak bisa dibatalkan atau ditukar.</div>` : ''}
@@ -1702,6 +1704,7 @@ async function showReceipt(sale, items, fresh, pays) {
     <button class="btn primary block" id="rdone" style="margin-top:8px">${fresh ? 'Transaksi baru' : 'Tutup'}</button>`);
   if ($('#rdel')) $('#rdel').onclick = () => openDeleteSale(sale, () => S.reloadTx?.());
   $('#rprint').onclick = () => printReceipt(sale, items, pays);
+  if ($('#rinv')) $('#rinv').onclick = () => openInvoice(sale);
   // Auto-print right after a sale (Pengaturan → Tampilan → Printer struk).
   if (fresh && POSP.autoPrint) setTimeout(() => printReceipt(sale, items, pays), 150);
   $('#rdone').onclick = () => { closeModal(); if (fresh) $('#q')?.focus(); };
@@ -1761,14 +1764,16 @@ async function viewTx() {
         <div class="card stat"><small>Diterima</small><b class="num">${rp(sum.paid)}</b></div>
       </div>${old ? `<div class="card legacy-day"><b>Sistem lama: ${old.count.toLocaleString('id-ID')} transaksi, ${rp(old.total)}</b>
         <div class="muted sm">${old.items.toLocaleString('id-ID')} pcs. Hari ini tercatat di sistem lama, hanya total hariannya yang dipindahkan (tanpa rincian per transaksi).</div></div>` : ''}`;
-      const row = s => (canDeleteSale(s) ? `<div class="txw">` : '') + `
+      const row = s => `<div class="txw">` + `
         <div class="tx" role="button" tabindex="0" data-s="${s.id}">
           <span><b class="num">${esc(s.number)}</b> <span class="badge ${s.status === 'lunas' ? 'ok' : s.status === 'batal' ? 'bad' : 'warn'}">${s.status}</span>${isLegacy(s) ? ' <span class="badge">sistem lama</span>' : ''}${s.kind === 'tukar' ? ` <span class="badge">tukar${s.expand?.ref_sale ? ' · ' + esc(s.expand.ref_sale.number) : ''}</span>` : ''}</span>
           <b class="num">${rp(s.total)}</b>
           <small class="muted">${fmtTime(s.created)} · ${esc(s.expand?.customer?.name || 'Toko')}${s.expand?.employee ? ' · ' + esc(s.expand.employee.name) : ' · ' + esc(cashierLabel(s.expand?.cashier))}</small>
           <small class="muted">${esc(s.expand?.payment_method?.name || '')}</small>
-        </div>` + (canDeleteSale(s) ? `<button class="txdel" data-del="${s.id}" title="Hapus permanen" aria-label="Hapus permanen ${esc(s.number)}">${TRASH_SVG}</button></div>` : '');
-      const wire = () => { $('#tlist').querySelectorAll('[data-del]').forEach(b => b.onclick = () => openDeleteSale(items.find(s => s.id === b.dataset.del), () => S.reloadTx?.()));
+        </div>` + `<button class="txdel txinv" data-inv="${s.id}" title="Invoice" aria-label="Invoice ${esc(s.number)}">${INV_SVG}</button>`
+        + (canDeleteSale(s) ? `<button class="txdel" data-del="${s.id}" title="Hapus permanen" aria-label="Hapus permanen ${esc(s.number)}">${TRASH_SVG}</button>` : '') + `</div>`;
+      const wire = () => { $('#tlist').querySelectorAll('[data-inv]').forEach(b => b.onclick = () => openInvoice(items.find(s => s.id === b.dataset.inv)));
+        $('#tlist').querySelectorAll('[data-del]').forEach(b => b.onclick = () => openDeleteSale(items.find(s => s.id === b.dataset.del), () => S.reloadTx?.()));
         $('#tlist').querySelectorAll('[data-s]').forEach(b => {
           b.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); b.onclick(); } };
           b.onclick = async () => {
@@ -1835,6 +1840,41 @@ function openDeleteSale(sale, after) {
       } catch (e) { $('#derr').innerHTML = `<div class="err">${esc(e.message)}</div>`; $('#dgo').disabled = false; }
     };
     $('#dnum').focus();
+  };
+}
+
+// ── invoice (A4, public read-only link) ─────────────
+// The link is POS_URL()/invoice.html#<token>; the token is made once per sale
+// and owner/admin can revoke it. WhatsApp goes through wa.me (no paid API).
+const INV_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></svg>';
+async function openInvoice(sale) {
+  let token;
+  try { token = (await api(`/api/invoice/${sale.id}/link`, { method: 'POST' })).token; } catch (e) { return toast(e.message, true); }
+  const url = `${POS_URL()}/invoice.html#${token}`;
+  const c = sale.expand?.customer, named = c && !isWalkin(c);
+  openModal(`
+    <h2>Invoice ${esc(sale.number)}</h2>
+    <div class="muted sm">Link ini hanya membuka invoice transaksi ini, tanpa login. Siapa pun yang memegang link bisa melihatnya.</div>
+    <input class="input" id="ilink" readonly value="${esc(url)}" style="margin-top:10px" aria-label="Link invoice">
+    <div class="row" style="margin-top:8px"><a class="btn" href="${esc(url)}" target="_blank" rel="noopener">Lihat invoice</a><a class="btn" href="${esc(url)}&print" target="_blank" rel="noopener">⤓ Unduh PDF</a><button class="btn" id="icopy">Salin link</button></div>
+    <label class="f" for="iwa">Kirim ke WhatsApp</label>
+    <div class="row"><input class="input" id="iwa" inputmode="tel" maxlength="20" placeholder="No. WhatsApp pelanggan, mis. 0812…" value="${esc(named ? c.phone || '' : '')}"><button class="btn primary" id="isend">Kirim WA</button></div>
+    ${isManager() ? `<button class="btn ghost sm" id="irev" style="margin-top:12px">Cabut link</button>` : ''}
+    <div id="ierr"></div>
+    <button class="btn block" id="idone" style="margin-top:12px">Tutup</button>`);
+  $('#idone').onclick = closeModal;
+  $('#icopy').onclick = async () => { try { await navigator.clipboard.writeText(url); toast('Link disalin.'); } catch (_) { $('#ilink').select(); document.execCommand('copy'); toast('Link disalin.'); } };
+  $('#isend').onclick = () => {
+    const n = waNumber($('#iwa').value);
+    if (!n || n.length < 9) return $('#ierr').innerHTML = `<div class="err">Isi nomor WhatsApp pelanggan.</div>`;
+    const hi = named ? `Halo ${c.name || c.username},` : 'Halo,';
+    const text = `${hi}\nBerikut invoice belanja Anda di ${S.settings.store_name}:\n${sale.number} · ${rp(sale.total)}\n${url}\n\nTerima kasih.`;
+    window.open(`https://wa.me/${n}?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+  };
+  if ($('#irev')) $('#irev').onclick = async () => {
+    if (!confirm('Cabut link invoice ini? Link yang sudah dikirim tidak bisa dibuka lagi.')) return;
+    try { await api(`/api/invoice/${sale.id}/revoke`, { method: 'POST' }); closeModal(); toast('Link invoice dicabut.'); }
+    catch (e) { $('#ierr').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
   };
 }
 
@@ -3234,6 +3274,14 @@ function setStore(el) {
     <div class="row"><div><label class="f">DP minimal pre-order (%)</label><input class="input num" id="s7" inputmode="numeric" maxlength="3" value="${s.po_min_dp ?? 30}"></div><div></div></div>
     <label class="f">Header struk</label><textarea class="input" id="s5" rows="4" maxlength="1000">${esc(s.receipt_header)}</textarea>
     <label class="f">Footer struk</label><textarea class="input" id="s6" rows="4" maxlength="1000">${esc(s.receipt_footer)}</textarea>
+    <h3 class="sec" style="margin:18px 0 0">Invoice</h3>
+    <label class="f">Catatan / syarat di invoice</label><textarea class="input" id="s8" rows="4" maxlength="3000" placeholder="Kosongkan untuk memakai footer struk">${esc(s.invoice_terms)}</textarea>
+    <label class="f">Gambar promo / e-voucher <small>(opsional, tampil di sisi kanan invoice)</small></label>
+    ${s.promo_image ? `<div style="display:flex;gap:10px;align-items:center;margin-bottom:6px"><img src="/api/files/settings/${s.id}/${encodeURIComponent(s.promo_image)}?thumb=0x120" alt="" style="max-height:80px;border-radius:8px"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="s9x"> Hapus gambar</label></div>` : ''}
+    <input class="input" type="file" id="s9" accept="image/jpeg,image/png,image/webp">
+    <div class="row"><div><label class="f">Judul promo</label><input class="input" id="s10" maxlength="120" value="${esc(s.promo_title)}" placeholder="mis. Diskon 10% belanja berikutnya"></div>
+    <div><label class="f">Berlaku s/d</label><input class="input" type="date" id="s11" value="${esc((s.promo_until || '').slice(0, 10))}"></div></div>
+    <div class="muted sm">Promo tidak tampil lagi setelah tanggal ini lewat. Kosongkan tanggal agar selalu tampil.</div>
     <div id="serr"></div>
     <button class="btn primary" style="margin-top:14px" id="sok">Simpan</button>
   </form>`;
@@ -3242,7 +3290,10 @@ function setStore(el) {
     try {
       await saveSettings({ store_name: $('#s1').value.trim(), business_type: $('#s2').value.trim(), address: $('#s3').value.trim(),
         phone: $('#s4').value.trim(), receipt_header: $('#s5').value, receipt_footer: $('#s6').value,
-        po_min_dp: Math.max(0, Math.min(100, parseInt($('#s7').value, 10) || 0)) });
+        po_min_dp: Math.max(0, Math.min(100, parseInt($('#s7').value, 10) || 0)),
+        invoice_terms: $('#s8').value, promo_title: $('#s10').value.trim(), promo_until: $('#s11').value ? $('#s11').value + ' 00:00:00.000Z' : '',
+        ...($('#s9x')?.checked ? { promo_image: null } : {}) });
+      if ($('#s9').files[0]) S.settings = await upload(`/api/collections/settings/records/${S.settings.id}`, { promo_image: $('#s9').files[0] });
       toast('Pengaturan disimpan.'); $('.brand').textContent = S.settings.store_name;
     } catch (e) { $('#serr').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
   };
