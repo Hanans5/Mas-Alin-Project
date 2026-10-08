@@ -56,7 +56,7 @@ routerAdd("POST", "/api/pos/checkout", (e) => {
     const itemsCol = tx.findCollectionByNameOrId("sale_items");
     for (const l of lines) {
       const r = new Record(itemsCol);
-      r.load({ sale: sale.id, product: l.p.id, name: l.p.getString("name"), qty: l.qty, price: l.price, hpp: l.hpp, subtotal: l.subtotal, tier: l.tier });
+      r.load({ sale: sale.id, product: l.p.id, name: l.p.getString("name"), qty: l.qty, price: l.price, hpp: l.hpp, subtotal: l.subtotal, tier: l.tier, pack_size: l.pack_size || 0 });
       tx.save(r);
       L.moveStock(tx, { product: l.p, type: "penjualan", qty: -l.qty, ref: sale.getString("number"), by: e.auth.id });
     }
@@ -85,7 +85,7 @@ routerAdd("POST", "/api/pos/preview", (e) => {
   const b = e.requestInfo().body || {};
   const c = L.priceCart(e.app, e, b);
   return e.json(200, {
-    lines: c.lines.map((l) => ({ product: l.p.id, qty: l.qty, price: l.price, tier: l.tier, subtotal: l.subtotal })),
+    lines: c.lines.map((l) => ({ product: l.p.id, qty: l.qty, price: l.price, tier: l.tier, pack_size: l.pack_size || 0, subtotal: l.subtotal })),
     subtotal: c.subtotal, discount: c.discount, total: c.total, points_used: c.pointsUsed,
     voucher_discount: c.voucherDiscount, points_discount: c.pointsDiscount,
   });
@@ -264,7 +264,7 @@ routerAdd("POST", "/api/pos/swap", (e) => {
     }
     for (const l of cart.lines) {
       const it = new Record(ic);
-      it.load({ sale: sale.id, product: l.p.id, name: l.p.getString("name"), qty: l.qty, price: l.price, hpp: l.hpp, subtotal: l.subtotal, tier: l.tier });
+      it.load({ sale: sale.id, product: l.p.id, name: l.p.getString("name"), qty: l.qty, price: l.price, hpp: l.hpp, subtotal: l.subtotal, tier: l.tier, pack_size: l.pack_size || 0 });
       tx.save(it);
       L.moveStock(tx, { product: l.p.id, type: "penjualan", qty: -l.qty, ref: number, note: "Tukar " + orig.getString("number"), by: e.auth.id });
     }

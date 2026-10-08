@@ -1,5 +1,12 @@
 # Nelin Batik kasir: changelog
 
+## 2026-10-09: Selling by the pack
+- Produk → Ubah: **Isi per pack (pcs)** (empty = not sold per pack) and **Harga per pack** (empty = isi × harga jual, shown as a hint). The product card and Produk list show "pack N pcs Rp …".
+- Kasir and Pre-Order: the cart line's **Harga** button has **Harga per pack** for any staff. Its "Isi per pack" defaults to the product's and can be changed on that line; another size is priced pro rata to the pack price (or size × the pcs price when there's no pack price). The line counts packs: "2 Pack (6 pcs) × Rp …", and its +/− add or remove a pack.
+- Everything else counts pcs: stock and stock history (1 pack of 6 = −6), void, tukar/retur (return any number of pcs), reports, HPP/laba (modal × pcs), Pre-Order pickup. A pack line is one sale item with qty in pcs, `tier: "pack"` and `pack_size`. The struk, WhatsApp text, ESC/POS print, Pre-Order nota and invoice show "1 Pack (6 pcs) x 45.000".
+- The server prices every pack line itself; one pack size per product per transaction; packs + loose pcs of the same product become two lines.
+- Migration `1791230000_pack`; test `tests/pack.mjs`.
+
 ## 2026-10-08: A4 invoice for the pelanggan
 - **📄 Invoice** in a receipt's struk popup and an invoice icon on every Transaksi row. It makes a public, read-only link `/invoice.html#<token>` (40 random characters, made once per sale) and offers **Lihat invoice**, **Unduh PDF** (print dialog, A4), **Salin link** and **Kirim WA** (wa.me with a short message and the link; the number is filled from the pelanggan and can be typed for Toko). Owner/admin can **Cabut link**: the old link stops working and the next one is new.
 - The invoice page has:

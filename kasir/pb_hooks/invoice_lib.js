@@ -39,6 +39,8 @@ function build(app, sale) {
   const signer = emp ? emp.getString("name") : (!cashier || crole === "owner" || crole === "superadmin") ? "Toko" : (cashier.getString("name") || cashier.getString("username"));
   const items = app.findRecordsByFilter("sale_items", "sale = {:s}", "created", 0, 0, { s: sale.id }).map((i) => ({
     name: i.getString("name"), qty: i.getInt("qty"), price: i.getInt("price"), subtotal: i.getInt("subtotal"), note: TIER[i.getString("tier")] || "",
+    // a pack line: qty is pcs; packs × pack_size, priced per pack
+    pack_size: i.getString("tier") === "pack" ? i.getInt("pack_size") : 0,
   }));
   const pays = [];
   const po = one(app, "preorders", sale.getString("preorder"));

@@ -102,7 +102,7 @@ routerAdd("POST", "/api/po/{id}/complete", (e) => {
     const itemsCol = tx.findCollectionByNameOrId("sale_items");
     for (const l of P.items(po)) {
       const r = new Record(itemsCol);
-      r.load({ sale: sale.id, product: l.product || "", name: l.name, qty: l.qty, price: l.price, hpp: l.hpp || 0, subtotal: l.subtotal, tier: l.tier });
+      r.load({ sale: sale.id, product: l.product || "", name: l.name, qty: l.qty, price: l.price, hpp: l.hpp || 0, subtotal: l.subtotal, tier: l.tier, pack_size: l.pack_size || 0 });
       tx.save(r);
       // goods leave the shelf now; custom items have no stock
       if (l.product) L.moveStock(tx, { product: l.product, type: "penjualan", qty: -l.qty, ref: sale.getString("number"), note: po.getString("number"), by: e.auth.id });

@@ -126,7 +126,7 @@ async function main() {
       <div>
         ${s.kind === 'tukar' ? '<div style="margin-bottom:6px;font-weight:700">Tukar barang</div>' : ''}
         <table><thead><tr><th>Deskripsi</th><th>Total</th></tr></thead><tbody>
-          ${d.items.map(i => `<tr><td><b>${esc(i.name)}</b><div class="q">${rp(i.price)} × ${i.qty}</div>${i.note ? `<div class="n">${esc(i.note)}</div>` : ''}</td>
+          ${d.items.map(i => `<tr><td><b>${esc(i.name)}</b><div class="q">${i.pack_size ? `${i.qty / i.pack_size} Pack (${i.pack_size} pcs) × ${rp(Math.round(i.subtotal / (i.qty / i.pack_size)))} · ${i.qty} pcs` : `${rp(i.price)} × ${i.qty}`}</div>${i.note ? `<div class="n">${esc(i.note)}</div>` : ''}</td>
             <td class="${i.subtotal < 0 ? 'neg' : ''}">${rp(i.subtotal)}</td></tr>`).join('')}
         </tbody></table>
         <div class="sum">

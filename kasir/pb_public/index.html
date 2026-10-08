@@ -724,7 +724,7 @@ function renderShell() {
 // ── POS ─────────────────────────────────────────────
 async function loadCatalog() {
   const [p, c, m] = await Promise.all([
-    list('products', { filter: 'active = true', sort: 'name', fields: 'id,name,sku,barcode,category,price,price_kodi,price_jumbo,photo,stock,min_stock,unit' }),
+    list('products', { filter: 'active = true', sort: 'name', fields: 'id,name,sku,barcode,category,price,price_kodi,price_jumbo,pack_size,price_pack,photo,stock,min_stock,unit' }),
     list('categories', { sort: 'name' }),
     list('payment_methods', { filter: 'active = true', sort: 'created' }),
   ]);
@@ -810,7 +810,7 @@ function renderChips() {
 }
 function renderGrid() {
   const items = filtered();
-  const inCart = Object.fromEntries(S.cart.map(l => [l.id, l.qty]));
+  const inCart = Object.fromEntries(S.cart.map(l => [l.id, linePcs(l)]));
   $('#grid').innerHTML = items.length ? items.map(p => {
     const left = p.stock - (inCart[p.id] || 0);
     const low = p.min_stock > 0 && p.stock <= p.min_stock;
@@ -819,7 +819,7 @@ function renderGrid() {
       ${POSP.images ? (p.photo ? `<img class="pimg" src="/api/files/products/${p.id}/${p.photo}?thumb=160x160" alt="" loading="lazy">` : `<span class="pimg ph" aria-hidden="true">${esc(p.name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase())}</span>`) : ''}
       <span class="n">${esc(p.name)}</span>
       <span class="s ${low ? 'low' : ''}">${esc(p.sku)} · stok ${p.stock}${low ? ' · menipis' : ''}</span>
-      <span class="p num">${rp(p.price)}${p.price_kodi ? `<small class="kodi">kodian ${rp(p.price_kodi)}</small>` : ''}${p.price_jumbo ? `<small class="kodi">jumbo ${rp(p.price_jumbo)}</small>` : ''}</span>
+      <span class="p num">${rp(p.price)}${p.price_kodi ? `<small class="kodi">kodian ${rp(p.price_kodi)}</small>` : ''}${p.price_jumbo ? `<small class="kodi">jumbo ${rp(p.price_jumbo)}</small>` : ''}${p.pack_size > 0 ? `<small class="kodi">pack ${p.pack_size} pcs ${rp(packPriceOf(p, p.pack_size))}</small>` : ''}</span>
     </button>`;
   }).join('') : `<div class="empty">${S.products.length ? 'Tidak ada produk yang cocok.' : 'Belum ada produk. Owner/admin bisa menambahkan lewat panel admin.'}</div>`;
   $('#grid').querySelectorAll('.prod').forEach(b => b.onclick = () => askQty(b.dataset.id));
@@ -828,8 +828,8 @@ function renderGrid() {
 function addToCart(id, n = 1) {
   const p = prodById(id); if (!p) return;
   const l = S.cart.find(x => x.id === id);
-  const now = l ? l.qty : 0;
-  if (!isPO() && now + n > p.stock) return toast(`Stok ${p.name} hanya ${p.stock}${now ? `, sudah ${now} di keranjang` : ''}.`, true);
+  const now = l ? linePcs(l) : 0, add = l?.tier === 'pack' ? n * l.pack : n;  // on a pack line n counts packs
+  if (!isPO() && now + add > p.stock) return toast(`Stok ${p.name} hanya ${p.stock}${now ? `, sudah ${now} pcs di keranjang` : ''}.`, true);
   if (l) l.qty += n; else S.cart.push({ id, qty: n });
   cartChanged();
 }
@@ -856,18 +856,24 @@ function askQty(id) {
 // server recomputes it at checkout.
 const KODI = 20;
 const TIER_FIELD = { kodian: 'price_kodi', jumbo: 'price_jumbo' };
+// Pack (l.tier 'pack'): l.qty counts packs of l.pack pcs; the pack's price is
+// the product's pack price for its own size, pro rata for another size, else
+// size × the pcs price (lib.js packPrice).
+const packPriceOf = (p, size) => p.price_pack > 0 && p.pack_size > 0 ? (size === p.pack_size ? p.price_pack : Math.round(p.price_pack * size / p.pack_size)) : size * p.price;
+const linePcs = l => l.tier === 'pack' ? l.qty * l.pack : l.qty;
 function linePricing(l) {
   const p = prodById(l.id);
   if (!p) return [];
+  if (l.tier === 'pack') { const each = packPriceOf(p, l.pack); return [{ qty: l.qty * l.pack, price: each, tier: 'pack', packs: l.qty, size: l.pack, subtotal: l.qty * each }]; }
   if (l.tier === 'kustom' && l.price > 0) return [{ qty: l.qty, price: l.price, tier: 'kustom' }];
   const f = TIER_FIELD[l.tier];
   if (f && p[f] > 0) return [{ qty: l.qty, price: p[f], tier: l.tier }];
   return [{ qty: l.qty, price: p.price, tier: 'normal' }];
 }
-const lineTotal = l => linePricing(l).reduce((a, x) => a + x.qty * x.price, 0);
-const TIER_NAME = { kodian: 'Kodian', jumbo: 'Jumbo', kustom: 'Kustom' };
+const lineTotal = l => linePricing(l).reduce((a, x) => a + (x.subtotal ?? x.qty * x.price), 0);
+const TIER_NAME = { kodian: 'Kodian', jumbo: 'Jumbo', kustom: 'Kustom', pack: 'Pack' };
 // "2 kodi × Rp 41.000" for whole kodis, "5 × Rp 41.000 kodian" otherwise.
-const partLabel = (x, many) => x.tier === 'kodian' ? (x.qty % KODI ? `${x.qty} × ${rp(x.price)} kodian` : `${x.qty / KODI} kodi × ${rp(x.price)}`)
+const partLabel = (x, many) => x.tier === 'pack' ? `${x.packs} Pack (${x.size} pcs) × ${rp(x.price)}` : x.tier === 'kodian' ? (x.qty % KODI ? `${x.qty} × ${rp(x.price)} kodian` : `${x.qty / KODI} kodi × ${rp(x.price)}`)
   : x.tier === 'jumbo' ? `${x.qty} × ${rp(x.price)} jumbo` : x.tier === 'kustom' ? `${x.qty} × ${rp(x.price)} harga kustom` : many ? `${x.qty} × ${rp(x.price)}` : rp(x.price);
 const TAG_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>`;
 // The owner's "Harga" button: the whole line at the price per pcs (default),
@@ -879,13 +885,18 @@ function openLinePrice(id) {
   if (!l || !p) return;
   const owner = isOwner();
   const cur = TIER_NAME[l.tier] ? l.tier : 'normal';
-  const all = n => `Semua ${l.qty} pcs × ${rp(n)} = ${rp(l.qty * n)}`;
+  const pcs = linePcs(l), all = n => `Semua ${pcs} pcs × ${rp(n)} = ${rp(pcs * n)}`;
+  const size0 = l.tier === 'pack' ? l.pack : p.pack_size;
+  const packs = s => Math.max(1, l.tier === 'pack' && s === l.pack ? l.qty : Math.round(pcs / s));
+  const packText = s => s > 0 ? `${packs(s)} Pack (${s} pcs) × ${rp(packPriceOf(p, s))} = ${rp(packs(s) * packPriceOf(p, s))}` : 'Isi jumlah pcs per pack.';
   const opt = (v, name, sub, off) => `<label class="pick"><input type="radio" name="lp" value="${v}" ${cur === v ? 'checked' : ''} ${off ? 'disabled' : ''}><span><b>${name}</b><small id="lp-${v}">${sub}</small></span></label>`;
-  openModal(`<h2>Harga</h2><div class="muted" style="margin-bottom:10px">${esc(p.name)} · ${l.qty} pcs</div>
+  openModal(`<h2>Harga</h2><div class="muted" style="margin-bottom:10px">${esc(p.name)} · ${pcs} pcs</div>
     <form id="lpf" class="choice-list">
       ${opt('normal', 'Harga per pcs', all(p.price))}
       ${opt('kodian', 'Harga kodian', p.price_kodi ? all(p.price_kodi) : owner ? 'Belum ada harga kodian untuk produk ini. Isi di bawah:' : 'Belum ada harga kodian untuk produk ini. Minta pemilik mengisinya di Produk.', !p.price_kodi && !owner)}
       ${p.price_kodi || !owner ? '' : `<input class="input num" id="lpv" inputmode="numeric" placeholder="Harga kodian per pcs, mis. ${rp(Math.max(0, p.price - 3000))}">`}
+      ${p.pack_size > 0 ? `${opt('pack', 'Harga per pack', packText(size0))}
+      <label class="f" for="lpk" style="margin-top:4px">Isi per pack (pcs)</label><input class="input num" id="lpk" inputmode="numeric" value="${size0}">` : ''}
       ${owner && p.price_jumbo ? opt('jumbo', 'Harga jumbo', all(p.price_jumbo)) : ''}
       ${owner ? `${opt('kustom', 'Harga kustom', 'Isi harga per pcs untuk baris ini:')}
       <input class="input num" id="lpc" inputmode="numeric" placeholder="Harga per pcs, mis. ${rp(p.price)}" value="${cur === 'kustom' ? l.price : ''}">` : ''}
@@ -895,6 +906,8 @@ function openLinePrice(id) {
   const pick = t => { document.querySelector(`#lpf input[value=${t}]`).checked = true; };
   const digits = i => parseInt((i.value || '').replace(/\D/g, ''), 10) || 0;
   if (v) v.oninput = () => pick('kodian');
+  const k = $('#lpk');
+  if (k) k.oninput = () => { pick('pack'); $('#lp-pack').textContent = packText(digits(k)); };
   if (c) c.oninput = () => { pick('kustom'); const n = digits(c); $('#lp-kustom').textContent = n ? all(n) : 'Isi harga per pcs untuk baris ini:'; };
   if (c && cur === 'kustom') c.oninput();
   $('#lpno').onclick = closeModal;
@@ -910,6 +923,15 @@ function openLinePrice(id) {
       try { await api(`/api/collections/products/records/${p.id}`, { method: 'PATCH', body: { price_kodi: n } }); p.price_kodi = n; toast(`Harga kodian ${p.name} disimpan: ${rp(n)}.`); }
       catch (e) { $('#lpok').disabled = false; $('#lperr').innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
     }
+    if (t === 'pack') {
+      const size = digits(k);
+      if (size < 1 || size > 10000) { $('#lperr').innerHTML = `<div class="err">Isi per pack 1 sampai 10.000 pcs.</div>`; return k.focus(); }
+      const n = packs(size);
+      if (!isPO() && n * size > p.stock) { $('#lperr').innerHTML = `<div class="err">Stok ${p.stock} pcs, tidak cukup untuk ${n} pack × ${size} pcs.</div>`; return k.focus(); }
+      delete l.price; l.tier = 'pack'; l.pack = size; l.qty = n;
+      closeModal(); return cartChanged();
+    }
+    if (l.tier === 'pack') { l.qty = pcs; delete l.pack; }
     delete l.price; delete l.tier;
     if (t === 'kustom') {
       const n = digits(c);
@@ -922,7 +944,8 @@ function openLinePrice(id) {
 }
 function setQty(id, qty) {
   const p = prodById(id);
-  qty = Math.max(0, Math.min(parseInt(qty, 10) || 0, isPO() ? 1e6 : p ? p.stock : 0));
+  const l0 = S.cart.find(l => l.id === id), per = l0?.tier === 'pack' ? l0.pack : 1;  // a pack line counts packs
+  qty = Math.max(0, Math.min(parseInt(qty, 10) || 0, isPO() ? 1e6 : p ? Math.floor(p.stock / per) : 0));
   S.cart = S.cart.map(l => l.id === id ? { ...l, qty } : l).filter(l => l.qty > 0);
   cartChanged();
 }
@@ -933,7 +956,7 @@ function cartChanged() { renderGrid(); renderCart(); schedulePreview(); }
 
 const localSubtotal = () => S.cart.reduce((a, l) => a + lineTotal(l), 0);
 const cartBody = () => ({
-  items: S.cart.map(l => l.custom ? { custom: true, name: l.custom.name, price: l.custom.price, hpp: l.custom.hpp, qty: l.qty } : l.tier === 'kustom' ? { product: l.id, qty: l.qty, tier: 'kustom', price: l.price } : l.tier ? { product: l.id, qty: l.qty, tier: l.tier } : { product: l.id, qty: l.qty }),
+  items: S.cart.map(l => l.custom ? { custom: true, name: l.custom.name, price: l.custom.price, hpp: l.custom.hpp, qty: l.qty } : l.tier === 'pack' ? { product: l.id, qty: l.qty, tier: 'pack', pack_size: l.pack } : l.tier === 'kustom' ? { product: l.id, qty: l.qty, tier: 'kustom', price: l.price } : l.tier ? { product: l.id, qty: l.qty, tier: l.tier } : { product: l.id, qty: l.qty }),
   customer: S.customer?.id || '', discount: isManager() ? (S.discount || 0) : 0, employee: S.employee || '',
 });
 
@@ -1018,7 +1041,7 @@ function renderTotals() {
   const el = $('#totals'); if (!el) return;
   const sub = localSubtotal();
   const p = S.preview;
-  const items = S.cart.reduce((a, l) => a + l.qty, 0);
+  const items = S.cart.reduce((a, l) => a + linePcs(l), 0);
   el.innerHTML = `
     <div class="sum"><span>Subtotal (${items} item)</span><span class="num">${rp(p ? p.subtotal : sub)}</span></div>
     ${p && p.discount > 0 ? `<div class="sum disc"><span>Diskon</span><span class="num">−${rp(p.discount)}</span></div>` : ''}
@@ -1351,7 +1374,7 @@ function poSlipHtml(r) {
     <div>Staf: ${esc(x.employee ? x.employee.name : 'Toko')}</div>
     ${x.customer && !isWalkin(x.customer) ? `<div>Member: ${esc(x.customer.name || x.customer.username)}</div>` : ''}
     ${po.ready_date ? `<div>Perkiraan siap: ${fd(po.ready_date.slice(0, 10))}</div>` : ''}
-    <hr>${items.map(i => `<div>${esc(i.name)}${i.tier === 'custom' ? ' <small>(custom)</small>' : TIER_NOTE[i.tier] ? ` <small>(${TIER_NOTE[i.tier]})</small>` : ''}</div><div class="r"><span>${i.qty} x ${n(i.price)}</span><span>${n(i.subtotal)}</span></div>`).join('')}
+    <hr>${items.map(i => `<div>${esc(i.name)}${i.tier === 'custom' ? ' <small>(custom)</small>' : TIER_NOTE[i.tier] ? ` <small>(${TIER_NOTE[i.tier]})</small>` : ''}</div><div class="r"><span>${itemQty(i, n)}</span><span>${n(i.subtotal)}</span></div>`).join('')}
     <hr>${po.discount ? `<div class="r"><span>Diskon</span><span>-${n(po.discount)}</span></div>` : ''}
     <div class="r"><b>TOTAL</b><b>${n(po.total)}</b></div>
     ${dps.map(p => `<div class="r"><span>DP ${esc(p.expand?.payment_method?.name || '')} ${fmtTime(p.created).split(',')[0]}</span><span>${n(p.amount)}</span></div>`).join('')}
@@ -1446,6 +1469,9 @@ function poCancel(po, done) {
 
 // ── receipt ─────────────────────────────────────────
 const TIER_NOTE = { kodian: 'kodian', jumbo: 'jumbo', kustom: 'harga kustom', retur: 'dikembalikan' };
+// "1 Pack (6 pcs) x 45.000" on a pack line (qty is pcs, pack_size pcs per pack), else "2 x 41.000".
+const itemQty = (i, money) => i.tier === 'pack' && i.pack_size > 0
+  ? `${i.qty / i.pack_size} Pack (${i.pack_size} pcs) x ${money(Math.round(i.subtotal / (i.qty / i.pack_size)))}` : `${i.qty} x ${money(i.price)}`;
 // Receipt payment lines: each method (cash shown as handed over, change below),
 // "DP" when the rest became a bon; older sales fall back to their one method.
 function payLines(sale, pays) {
@@ -1477,7 +1503,7 @@ function receiptHtml(sale, items, pays) {
     ${x.customer && !isWalkin(x.customer) ? `<div>Member: ${esc(x.customer.name || x.customer.username)}</div>` : ''}
     <hr>
     ${sale.kind === 'tukar' ? `<div><b>TUKAR BARANG</b>${x.ref_sale ? ' dari ' + esc(x.ref_sale.number) : ''}</div><hr>` : ''}
-    ${items.map(i => `<div>${esc(i.name)}${TIER_NOTE[i.tier] ? ` <small>(${TIER_NOTE[i.tier]})</small>` : ''}</div><div class="r"><span>${i.qty} x ${i.price.toLocaleString('id-ID')}</span><span>${i.subtotal.toLocaleString('id-ID')}</span></div>`).join('')}
+    ${items.map(i => `<div>${esc(i.name)}${TIER_NOTE[i.tier] ? ` <small>(${TIER_NOTE[i.tier]})</small>` : ''}</div><div class="r"><span>${itemQty(i, v => v.toLocaleString('id-ID'))}</span><span>${i.subtotal.toLocaleString('id-ID')}</span></div>`).join('')}
     <hr>
     <div class="r"><span>Subtotal</span><span>${sale.subtotal.toLocaleString('id-ID')}</span></div>
     ${sale.discount ? `<div class="r"><span>Diskon</span><span>-${sale.discount.toLocaleString('id-ID')}</span></div>` : ''}
@@ -1495,7 +1521,7 @@ function receiptText(sale, items, pays) {
   const st = S.settings;
   return [`*${st.store_name}*`, sale.number, fmtTime(sale.created), `Staf: ${sale.expand?.employee ? sale.expand.employee.name : 'Toko'}`, '',
     sale.kind === 'tukar' ? 'Tukar barang' : '',
-    ...items.map(i => `${i.name}${TIER_NOTE[i.tier] ? ` (${TIER_NOTE[i.tier]})` : ''}\n  ${i.qty} x ${rp(i.price)} = ${rp(i.subtotal)}`), '',
+    ...items.map(i => `${i.name}${TIER_NOTE[i.tier] ? ` (${TIER_NOTE[i.tier]})` : ''}\n  ${itemQty(i, rp)} = ${rp(i.subtotal)}`), '',
     sale.discount ? `Diskon: -${rp(sale.discount)}` : '', `*Total: ${rp(sale.total)}*`,
     ...payLines(sale, pays).map(l => `${l[0]}: ${rp(l[1])}`), sale.change ? `Kembali: ${rp(sale.change)}` : '',
     sale.total > sale.paid ? (sale.status === 'piutang' ? `*Sisa bon: ${rp(sale.total - sale.paid)}*` : `Bon ${rp(sale.total - sale.paid)} sudah lunas`) : '',
@@ -1575,7 +1601,7 @@ async function escposReceipt(sale, items, pays) {
   if (sale.kind === 'tukar') { bold(1); line('TUKAR BARANG'); bold(0); if (x.ref_sale) line('dari ' + x.ref_sale.number); sep(); }
   for (const i of items) {
     wrap(i.name + (TIER_NOTE[i.tier] ? ` (${TIER_NOTE[i.tier]})` : '')).forEach(l => line(l));
-    line(lr(`  ${i.qty} x ${n(i.price)}`, n(i.subtotal)));
+    line(lr(`  ${itemQty(i, n)}`, n(i.subtotal)));
   }
   sep();
   line(lr('Subtotal', n(sale.subtotal)));
@@ -1945,7 +1971,7 @@ async function viewProducts() {
         <td data-l="Kategori">${esc(catName(p.category))}</td>
         <td data-l="Stok" class="r num">${low ? `<span class="badge warn">${p.stock}</span>` : p.stock.toLocaleString('id-ID')}</td>
         <td data-l="HPP" class="r num">${rp(p.hpp)}</td>
-        <td data-l="Harga jual" class="r num"><b>${rp(p.price)}</b>${p.price_kodi ? `<div class="muted sm">kodian ${rp(p.price_kodi)}</div>` : ''}${p.price_jumbo ? `<div class="muted sm">jumbo ${rp(p.price_jumbo)}</div>` : ''}</td>
+        <td data-l="Harga jual" class="r num"><b>${rp(p.price)}</b>${p.price_kodi ? `<div class="muted sm">kodian ${rp(p.price_kodi)}</div>` : ''}${p.price_jumbo ? `<div class="muted sm">jumbo ${rp(p.price_jumbo)}</div>` : ''}${p.pack_size > 0 ? `<div class="muted sm">pack ${p.pack_size} pcs ${rp(packPriceOf(p, p.pack_size))}</div>` : ''}</td>
         <td data-l="Laba" class="r num" style="color:${margin < 0 ? 'var(--bad)' : 'var(--ok)'}"><span>${rp(margin)}${p.price ? ` <small class="muted">${Math.round(margin / p.price * 100)}%</small>` : ''}</span></td>
         <td class="r"><button class="btn sm" data-edit="${p.id}">Ubah</button> <button class="btn sm" data-stk="${p.id}">Stok</button></td>
       </tr>`;
@@ -1995,7 +2021,13 @@ function editProduct(p, cats, all, reload) {
         <div><label class="f">Harga jumbo per pcs <small>(kosongkan kalau tidak ada)</small></label>
         <input class="input num" id="ej" inputmode="numeric" value="${p.price_jumbo || ''}" placeholder="mis. ${p.price ? p.price + 5000 : 50000}"></div>
       </div>
-      <div class="muted sm" style="margin-top:6px">Kodian dan jumbo dipilih pemilik lewat tombol Harga di keranjang.</div>
+      <div class="row">
+        <div><label class="f">Isi per pack (pcs) <small>(kosongkan kalau tidak dijual per pack)</small></label>
+        <input class="input num" id="epk" inputmode="numeric" value="${p.pack_size || ''}" placeholder="mis. 6"></div>
+        <div><label class="f">Harga per pack <small id="eppk-hint"></small></label>
+        <input class="input num" id="eppk" inputmode="numeric" value="${p.price_pack || ''}"></div>
+      </div>
+      <div class="muted sm" style="margin-top:6px">Kodian dan jumbo dipilih pemilik lewat tombol Harga di keranjang. Pack bisa dipilih semua kasir; stok berkurang sebanyak isi pack.</div>
       <div id="emargin" class="muted" style="font-size:14px;margin-top:6px"></div>
       <div class="row">
         <div><label class="f">Peringatan stok di bawah</label><input class="input num" id="em" inputmode="numeric" value="${p.min_stock}"></div>
@@ -2024,19 +2056,23 @@ function editProduct(p, cats, all, reload) {
     $('#es').oninput = () => { $('#es').dataset.touched = 1; };
     $('#ec').onchange = fill; fill();
   }
+  // Pack price suggestion: isi per pack × harga jual (used when left empty).
+  const packHint = () => { const k = num('epk'), pr = num('ep'); $('#eppk-hint').textContent = k ? `(kosong = ${k} × harga jual = ${rp(k * pr)})` : ''; $('#eppk').placeholder = k ? String(k * pr) : 'isi per pack dulu'; };
+  $('#epk').oninput = packHint; $('#ep').addEventListener('input', packHint); packHint();
   $('#eno').onclick = closeModal;
   $('#ef').onsubmit = async ev => {
     ev.preventDefault();
     const body = {
       name: $('#en').value.trim(), category: $('#ec').value, unit: $('#eu').value.trim(),
       sku: $('#es').value.trim().toUpperCase(), barcode: $('#eb').value.trim(),
-      hpp: num('eh'), price: num('ep'), price_kodi: num('ek'), price_jumbo: num('ej'), min_stock: num('em'), active: $('#ea').checked,
+      hpp: num('eh'), price: num('ep'), price_kodi: num('ek'), price_jumbo: num('ej'), pack_size: num('epk'), price_pack: num('epk') ? num('eppk') : 0, min_stock: num('em'), active: $('#ea').checked,
       hide_online: $('#eho').checked, weight: num('ew'), description: $('#ed').value.trim(),
     };
     if (body.price < body.hpp && !confirmInline('eerr', 'Harga jual di bawah HPP — produk ini rugi. Tekan Simpan lagi untuk tetap menyimpan.')) return;
     if (body.price_kodi && body.price_kodi >= body.price) return $('#eerr').innerHTML = `<div class="err">Harga kodian harus lebih murah dari harga jual.</div>`;
     if (body.price_kodi && body.price_kodi < body.hpp && !confirmInline('eerr', 'Harga kodian di bawah HPP. Tekan Simpan lagi untuk tetap menyimpan.')) return;
     if (body.price_jumbo && body.price_jumbo < body.hpp && !confirmInline('eerr', 'Harga jumbo di bawah HPP. Tekan Simpan lagi untuk tetap menyimpan.')) return;
+    if (body.price_pack && body.pack_size && body.price_pack < body.hpp * body.pack_size && !confirmInline('eerr', `Harga per pack di bawah modal (${body.pack_size} × HPP = ${rp(body.hpp * body.pack_size)}). Tekan Simpan lagi untuk tetap menyimpan.`)) return;
     $('#eok').disabled = true;
     try {
       const saved = await api(`/api/collections/products/records${isNew ? '' : '/' + p.id}`, { method: isNew ? 'POST' : 'PATCH', body });

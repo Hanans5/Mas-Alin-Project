@@ -138,14 +138,14 @@ function query(tx, sql, params, shape) {
 //   kustom + price   = a typed price per pcs (> 0), owner only
 // Older clients may still send `kodian: true` or a bare `price`.
 const KODI = 20;
-const TIERS = ["normal", "kodian", "jumbo", "kustom"];
+const TIERS = ["normal", "kodian", "jumbo", "kustom", "pack"];
 function itemTier(e, it) {
   const hasPrice = it.price !== undefined && it.price !== null && it.price !== "";
   let t = it.tier ? String(it.tier) : hasPrice ? "kustom" : it.kodian === true ? "kodian" : "normal";
   if (t === "custom") t = "kustom";
   if (TIERS.indexOf(t) === -1) throw new BadRequestError("Jenis harga tidak dikenal.");
   const r = e ? role(e) : "";
-  if (t === "kodian" && ["owner", "admin", "kasir"].indexOf(r) === -1) {
+  if ((t === "kodian" || t === "pack") && ["owner", "admin", "kasir"].indexOf(r) === -1) {
     throw new ForbiddenError("Harga kodian hanya untuk staf toko.");
   }
   if ((t === "jumbo" || t === "kustom") && r !== "owner") {
@@ -156,11 +156,32 @@ function itemTier(e, it) {
     price = int(it.price, "Harga kustom");
     if (price < 1) throw new BadRequestError("Harga kustom harus lebih dari 0.");
   }
-  return { tier: t, price };
+  // pack: qty counts packs; pack_size = pcs in one pack on this line (the
+  // product's own size by default, the kasir may change it).
+  let pack_size = 0;
+  if (t === "pack") {
+    pack_size = int(it.pack_size, "Isi per pack");
+    if (pack_size < 1 || pack_size > 10000) throw new BadRequestError("Isi per pack harus 1 sampai 10.000 pcs.");
+  }
+  return { tier: t, price, pack_size };
+}
+// A pack's price for a line of `size` pcs: the product's pack price for its
+// own size, pro rata for another size; without a pack price, size × pcs price.
+function packPrice(p, size) {
+  const own = p.getInt("pack_size"), pp = p.getInt("price_pack");
+  if (pp > 0 && own > 0) return size === own ? pp : Math.round(pp * size / own);
+  return size * p.getInt("price");
 }
 // The whole line at one price, or throws when the product has no such price.
 function splitPrice(p, qty, want) {
   const w = want || {};
+  // Packs (w.packs × w.pack_size pcs) first, then any loose pcs at w.loose's tier.
+  if (w.packs) {
+    if (!(p.getInt("pack_size") > 0)) throw new BadRequestError(`${p.getString("name")} belum punya isi per pack. Atur di Produk.`);
+    const each = packPrice(p, w.pack_size), pcs = w.packs * w.pack_size;
+    const out = [{ qty: pcs, price: Math.round(each / w.pack_size), subtotal: w.packs * each, tier: "pack", pack_size: w.pack_size }];
+    return qty > pcs ? out.concat(splitPrice(p, qty - pcs, w.loose || {})) : out;
+  }
   if (w.tier === "kustom") return [{ qty, price: w.price, tier: "kustom" }];
   const field = { kodian: "price_kodi", jumbo: "price_jumbo" }[w.tier];
   if (field) {
@@ -170,6 +191,19 @@ function splitPrice(p, qty, want) {
   return [{ qty, price: p.getInt("price"), tier: "normal" }];
 }
 
+// Merge the cart's lines per product so stock is checked against the real
+// total: qty in pcs (packs × pack_size for a pack line). A special price on
+// any loose line covers the product's loose pcs; one pack size per product.
+function mergeWant(want, pid, q, t) {
+  const w = want[pid] || (want[pid] = { qty: 0, tier: "normal", price: null, packs: 0, pack_size: 0, loose: { tier: "normal", price: null } });
+  if (t.tier === "pack") {
+    if (w.packs && w.pack_size !== t.pack_size) throw new BadRequestError("Satu produk hanya bisa satu ukuran pack per transaksi.");
+    w.packs += q; w.pack_size = t.pack_size; w.qty += q * t.pack_size;
+    return;
+  }
+  w.qty += q;
+  if (t.tier !== "normal") { Object.assign(w, { tier: t.tier, price: t.price }); w.loose = { tier: t.tier, price: t.price }; }
+}
 function priceCart(tx, e, b) {
   const items = Array.isArray(b.items) ? b.items : [];
   if (!items.length) throw new BadRequestError("Keranjang kosong.");
@@ -180,10 +214,7 @@ function priceCart(tx, e, b) {
   for (const it of items) {
     const q = int(it.qty, "Qty");
     if (q < 1) throw new BadRequestError("Qty minimal 1.");
-    const t = itemTier(e, it);
-    const w = want[it.product] || (want[it.product] = { qty: 0, tier: "normal", price: null });
-    w.qty += q;
-    if (t.tier !== "normal") Object.assign(w, t);
+    mergeWant(want, it.product, q, itemTier(e, it));
   }
 
   const lines = [];
@@ -195,8 +226,9 @@ function priceCart(tx, e, b) {
     const qty = want[pid].qty;
     if (p.getInt("stock") < qty) throw new BadRequestError(`Stok ${p.getString("name")} tidak cukup (sisa ${p.getInt("stock")}).`);
     for (const l of splitPrice(p, qty, want[pid])) {
-      lines.push({ p, qty: l.qty, price: l.price, tier: l.tier, hpp: p.getInt("hpp"), subtotal: l.price * l.qty });
-      subtotal += l.price * l.qty;
+      const sub = l.subtotal ?? l.price * l.qty;
+      lines.push({ p, qty: l.qty, price: l.price, tier: l.tier, pack_size: l.pack_size || 0, hpp: p.getInt("hpp"), subtotal: sub });
+      subtotal += sub;
     }
   }
 
@@ -273,18 +305,16 @@ function pricePreorder(tx, e, b) {
       subtotal += price * q;
       continue;
     }
-    const t = itemTier(e, it);
-    const w = want[it.product] || (want[it.product] = { qty: 0, tier: "normal", price: null });
-    w.qty += q;
-    if (t.tier !== "normal") Object.assign(w, t);
+    mergeWant(want, it.product, q, itemTier(e, it));
   }
   for (const pid in want) {
     let p;
     try { p = tx.findRecordById("products", pid); } catch (_) { throw new BadRequestError("Produk tidak ditemukan."); }
     if (!p.getBool("active")) throw new BadRequestError(`${p.getString("name")} tidak aktif.`);
     for (const l of splitPrice(p, want[pid].qty, want[pid])) {
-      lines.push({ product: p.id, name: p.getString("name"), qty: l.qty, price: l.price, hpp: p.getInt("hpp"), tier: l.tier, subtotal: l.price * l.qty });
-      subtotal += l.price * l.qty;
+      const sub = l.subtotal ?? l.price * l.qty;
+      lines.push({ product: p.id, name: p.getString("name"), qty: l.qty, price: l.price, hpp: p.getInt("hpp"), tier: l.tier, pack_size: l.pack_size || 0, subtotal: sub });
+      subtotal += sub;
     }
   }
   let customer = null;
