@@ -1,5 +1,18 @@
 # Nelin Batik kasir: changelog
 
+## 2026-10-08: Tukar barang for the same product
+- Swapping a product for the same product (e.g. another size of a model) no longer leaves the stock 1 low: the returned pcs go back on the shelf first, then the new items are checked and taken off. The last pcs on the shelf can now be swapped for itself (the Tukar window counts the returned pcs as available). Test: `tests/swap-same-product.mjs`.
+
+## 2026-10-08: Harga kodian for the kasir
+- The kasir login now gets the **Harga** button on cart lines (Kasir and Pre-Order) with **Harga per pcs** and **Harga kodian** only. A product without a kodian price shows Harga kodian greyed out ("Minta pemilik mengisinya di Produk"). Admin gets the same.
+- Harga jumbo and Harga kustom stay owner/superadmin only; the server still refuses them for kasir and admin (403).
+
+## 2026-10-08: Harga per pcs, jumbo, kustom
+- The owner's **Harga** button on a cart line (Kasir and Pre-Order) offers: **Harga per pcs** (default), **Harga kodian**, **Harga jumbo** (only when the product has one) and **Harga kustom** (type any price per pcs, more than 0). The choice covers the whole line.
+- "Otomatis" is gone: there's no more automatic kodian price per 20 pcs. Every line starts at the normal price; kodian is the owner's choice per line.
+- **Harga jumbo per pcs**: a new optional product price, set in Produk → Ubah. It shows as "jumbo Rp …" on the product card. Migration `1791200000_price_jumbo`.
+- Receipts and nota mark the line "(jumbo)" or "(harga kustom)". The server checks every price; kasir can't pick kodian, jumbo or kustom.
+
 ## 2026-10-07 / 08
 
 ### Data from the old system

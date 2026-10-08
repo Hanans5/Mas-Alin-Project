@@ -20,7 +20,7 @@ Read `~/nelin-store/REPORT.md` first: the full handoff for both apps (they share
 ## Rules the code relies on
 - Till money = `sale_payments` rows (one per method, cash net of change); `sales.paid` = what was kept at the till (the DP for a bon). Bon payments live only in `receivable_payments`: never add them to `sales.paid`, or Buku Kas counts them twice.
 - Only Tunai and Transfer are active. Points and vouchers are retired; voiding an old sale still reverses them.
-- Prices are decided server-side (`lib.priceCart`): kodian per full 20 pcs (`splitPrice`); `kodian: true` on an item = whole line at the kodian price, owner-only (the cart's "Harga" button); custom unit price (`price`) owner-only, API only.
+- Prices are decided server-side (`lib.priceCart` / `pricePreorder`, `splitPrice`): one price per pcs for the whole line, no automatic kodian (since 2026-10-08). Item `tier`: `normal` (default) / `kodian` (`price_kodi`) / `jumbo` (`price_jumbo`) / `kustom` + `price` > 0; kodian for any staff (kasir and admin get the cart's "Harga" button with Per pcs + Kodian only), jumbo and kustom owner-only (Kasir and Pre-Order). Old `kodian: true` / bare `price` still accepted. `sale_items.tier` stores the choice.
 - Buku Kas / Laporan tables render 200 rows at a time (`CB_PAGE`); never render a whole year of rows at once.
 - Swap (tukar barang) = sale `kind: "tukar"` + `ref_sale`; returned lines have negative qty (`tier: "retur"`). A sale with a live swap can't be voided.
 - Karyawan per sale: `employee` = id or `"toko"`; required once any karyawan is active.

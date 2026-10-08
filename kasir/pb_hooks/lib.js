@@ -27,7 +27,13 @@ function idr(n) {
   return String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 }
 
+// A superadmin has the owner's rights everywhere (the API rules keep owner
+// accounts out of a superadmin's reach); realRole() tells the two apart.
 function role(e) {
+  const r = realRole(e);
+  return r === "superadmin" ? "owner" : r;
+}
+function realRole(e) {
   return e.auth ? e.auth.getString("role") : "";
 }
 
@@ -124,46 +130,60 @@ function query(tx, sql, params, shape) {
 
 // Prices a cart from the database. Shared by /api/pos/preview and checkout so
 // the till shows exactly what will be charged. Client prices are ignored.
-// Kodian: every full 20 pcs of a line sell at the product's kodian price,
-// the rest at the normal price (45 pcs = 40 kodian + 5 normal). `kodian: true`
-// on an item (owner only) puts the whole line at the kodian price; a custom
-// price (owner only, kept for the API) applies to the whole line.
+// Each line has one price for every pcs (Mas Alin, 2026-10-08: no more
+// automatic kodian per 20 pcs). `tier` on an item picks it:
+//   normal (default) = the product's price
+//   kodian           = the product's price_kodi, any staff (kasir too, Hanan 2026-10-08)
+//   jumbo            = the product's price_jumbo, owner only
+//   kustom + price   = a typed price per pcs (> 0), owner only
+// Older clients may still send `kodian: true` or a bare `price`.
 const KODI = 20;
-function splitPrice(p, qty, custom, allKodi) {
-  if (custom !== null && custom !== undefined) return [{ qty, price: custom, tier: "kustom" }];
-  const kodi = p.getInt("price_kodi"), normal = p.getInt("price");
-  // "Harga kodian" (owner only, checked by the caller): the whole line at the
-  // kodian price, even under 20 pcs, as in the old POS.
-  if (allKodi && kodi > 0) return [{ qty, price: kodi, tier: "kodian" }];
-  const k = kodi > 0 ? Math.floor(qty / KODI) * KODI : 0;
-  const out = [];
-  if (k) out.push({ qty: k, price: kodi, tier: "kodian" });
-  if (qty - k) out.push({ qty: qty - k, price: normal, tier: "normal" });
-  return out;
+const TIERS = ["normal", "kodian", "jumbo", "kustom"];
+function itemTier(e, it) {
+  const hasPrice = it.price !== undefined && it.price !== null && it.price !== "";
+  let t = it.tier ? String(it.tier) : hasPrice ? "kustom" : it.kodian === true ? "kodian" : "normal";
+  if (t === "custom") t = "kustom";
+  if (TIERS.indexOf(t) === -1) throw new BadRequestError("Jenis harga tidak dikenal.");
+  const r = e ? role(e) : "";
+  if (t === "kodian" && ["owner", "admin", "kasir"].indexOf(r) === -1) {
+    throw new ForbiddenError("Harga kodian hanya untuk staf toko.");
+  }
+  if ((t === "jumbo" || t === "kustom") && r !== "owner") {
+    throw new ForbiddenError(t === "jumbo" ? "Hanya pemilik yang bisa memakai harga jumbo." : "Hanya pemilik yang bisa mengubah harga.");
+  }
+  let price = null;
+  if (t === "kustom") {
+    price = int(it.price, "Harga kustom");
+    if (price < 1) throw new BadRequestError("Harga kustom harus lebih dari 0.");
+  }
+  return { tier: t, price };
+}
+// The whole line at one price, or throws when the product has no such price.
+function splitPrice(p, qty, want) {
+  const w = want || {};
+  if (w.tier === "kustom") return [{ qty, price: w.price, tier: "kustom" }];
+  const field = { kodian: "price_kodi", jumbo: "price_jumbo" }[w.tier];
+  if (field) {
+    if (!(p.getInt(field) > 0)) throw new BadRequestError(`${p.getString("name")} belum punya harga ${w.tier}.`);
+    return [{ qty, price: p.getInt(field), tier: w.tier }];
+  }
+  return [{ qty, price: p.getInt("price"), tier: "normal" }];
 }
 
 function priceCart(tx, e, b) {
   const items = Array.isArray(b.items) ? b.items : [];
   if (!items.length) throw new BadRequestError("Keranjang kosong.");
   if (items.length > 200) throw new BadRequestError("Terlalu banyak item.");
-  // Merge duplicate lines so stock is checked against the real total.
-  // `price` on an item is a custom unit price: owner only (Mas Alin).
+  // Merge duplicate lines so stock is checked against the real total; a
+  // special price on any of them covers the merged line.
   const want = {};
   for (const it of items) {
     const q = int(it.qty, "Qty");
     if (q < 1) throw new BadRequestError("Qty minimal 1.");
-    const w = want[it.product] || (want[it.product] = { qty: 0, price: null, kodian: false });
+    const t = itemTier(e, it);
+    const w = want[it.product] || (want[it.product] = { qty: 0, tier: "normal", price: null });
     w.qty += q;
-    if (it.kodian === true) {
-      if (!e || role(e) !== "owner") throw new ForbiddenError("Hanya pemilik yang bisa memakai harga kodian.");
-      w.kodian = true;
-    }
-    if (it.price !== undefined && it.price !== null && it.price !== "") {
-      if (!e || role(e) !== "owner") throw new ForbiddenError("Hanya pemilik yang bisa mengubah harga.");
-      const pr = int(it.price, "Harga");
-      if (pr < 0) throw new BadRequestError("Harga tidak boleh minus.");
-      w.price = pr;
-    }
+    if (t.tier !== "normal") Object.assign(w, t);
   }
 
   const lines = [];
@@ -174,8 +194,7 @@ function priceCart(tx, e, b) {
     if (!p.getBool("active")) throw new BadRequestError(`${p.getString("name")} tidak aktif.`);
     const qty = want[pid].qty;
     if (p.getInt("stock") < qty) throw new BadRequestError(`Stok ${p.getString("name")} tidak cukup (sisa ${p.getInt("stock")}).`);
-    if (want[pid].kodian && !(p.getInt("price_kodi") > 0)) throw new BadRequestError(`${p.getString("name")} belum punya harga kodian.`);
-    for (const l of splitPrice(p, qty, want[pid].price, want[pid].kodian)) {
+    for (const l of splitPrice(p, qty, want[pid])) {
       lines.push({ p, qty: l.qty, price: l.price, tier: l.tier, hpp: p.getInt("hpp"), subtotal: l.price * l.qty });
       subtotal += l.price * l.qty;
     }
@@ -227,8 +246,8 @@ function returnable(tx, sale) {
 }
 // A sale by its number (TRX-261006-0001, any case) or record id.
 // ── Pre-Order ──
-// Prices a pre-order like the till (kodian per full 20 pcs, "kodian" and
-// custom price owner only, manual discount owner/admin) but without a stock
+// Prices a pre-order like the till (one price per line; kodian, jumbo and
+// kustom owner only, manual discount owner/admin) but without a stock
 // check: the goods may not exist yet. Custom lines ({ custom: true, name,
 // price, hpp?, qty }) are typed by owner/admin and have no product.
 function pricePreorder(tx, e, b) {
@@ -252,25 +271,16 @@ function pricePreorder(tx, e, b) {
       subtotal += price * q;
       continue;
     }
-    const w = want[it.product] || (want[it.product] = { qty: 0, price: null, kodian: false });
+    const t = itemTier(e, it);
+    const w = want[it.product] || (want[it.product] = { qty: 0, tier: "normal", price: null });
     w.qty += q;
-    if (it.kodian === true) {
-      if (role(e) !== "owner") throw new ForbiddenError("Hanya pemilik yang bisa memakai harga kodian.");
-      w.kodian = true;
-    }
-    if (it.price !== undefined && it.price !== null && it.price !== "") {
-      if (role(e) !== "owner") throw new ForbiddenError("Hanya pemilik yang bisa mengubah harga.");
-      const pr = int(it.price, "Harga");
-      if (pr < 0) throw new BadRequestError("Harga tidak boleh minus.");
-      w.price = pr;
-    }
+    if (t.tier !== "normal") Object.assign(w, t);
   }
   for (const pid in want) {
     let p;
     try { p = tx.findRecordById("products", pid); } catch (_) { throw new BadRequestError("Produk tidak ditemukan."); }
     if (!p.getBool("active")) throw new BadRequestError(`${p.getString("name")} tidak aktif.`);
-    if (want[pid].kodian && !(p.getInt("price_kodi") > 0)) throw new BadRequestError(`${p.getString("name")} belum punya harga kodian.`);
-    for (const l of splitPrice(p, want[pid].qty, want[pid].price, want[pid].kodian)) {
+    for (const l of splitPrice(p, want[pid].qty, want[pid])) {
       lines.push({ product: p.id, name: p.getString("name"), qty: l.qty, price: l.price, hpp: p.getInt("hpp"), tier: l.tier, subtotal: l.price * l.qty });
       subtotal += l.price * l.qty;
     }
@@ -384,4 +394,4 @@ function legacyTotals(tx, kind) {
   return out;
 }
 
-module.exports = { pricePreorder, nextPoNumber, minDp, isLegacySale, legacySpan, legacyTotals, legacyDays, takePayments, pickEmployee, returnable, findSale, idr, priceCart, splitPrice, KODI, wibDate, wibRange, role, requireRole, int, moveStock, nextSaleNumber, voucherDiscount, settings, query };
+module.exports = { realRole, pricePreorder, nextPoNumber, minDp, isLegacySale, legacySpan, legacyTotals, legacyDays, takePayments, pickEmployee, returnable, findSale, idr, priceCart, splitPrice, KODI, wibDate, wibRange, role, requireRole, int, moveStock, nextSaleNumber, voucherDiscount, settings, query };

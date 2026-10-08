@@ -212,6 +212,36 @@ routerAdd("GET", "/api/reports/cashbook", (e) => {
   return e.json(200, { from: q.from, to: q.to, opening, total_in: totalIn, total_out: totalOut, closing: balance, groups: list, lines });
 }, $apis.requireAuth("users"));
 
+// GET /api/tx/summary?from&to&employee? — Transaksi page cards for a period:
+// count, omzet and what was kept at the till; voided sales don't count.
+// employee = id or "toko" (sales without karyawan). Staff.
+routerAdd("GET", "/api/tx/summary", (e) => {
+  const L = require(`${__hooks}/lib.js`);
+  L.requireRole(e, ["owner", "admin", "kasir"]);
+  const q = e.requestInfo().query;
+  const r = L.wibRange(q.from, q.to);
+  const emp = q.employee === "toko" ? " AND employee = ''" : q.employee ? " AND employee = {:emp}" : "";
+  const s = L.query(e.app, `SELECT COUNT(*) AS count, COALESCE(SUM(total),0) AS omzet, COALESCE(SUM(paid),0) AS paid
+      FROM sales WHERE status != 'batal' AND created >= {:from} AND created < {:to}${emp}`,
+    { from: r.from, to: r.to, emp: q.employee || "" }, { count: 0, omzet: 0, paid: 0 })[0];
+  return e.json(200, s);
+}, $apis.requireAuth("users"));
+
+// GET /api/expenses/week — this week's Pengeluaran (Monday to today, WIB):
+// the only expense list the kasir login gets. Staff.
+routerAdd("GET", "/api/expenses/week", (e) => {
+  const L = require(`${__hooks}/lib.js`);
+  L.requireRole(e, ["owner", "admin", "kasir"]);
+  const today = L.wibDate();
+  const dow = (new Date(today + "T00:00:00Z").getUTCDay() + 6) % 7;   // Monday = 0
+  const from = new Date(Date.parse(today + "T00:00:00Z") - dow * 86400000).toISOString().slice(0, 10);
+  const items = L.query(e.app, `SELECT x.id, x.date, x.category, x.amount, x.note, COALESCE(m.name, '') AS method
+      FROM expenses x LEFT JOIN payment_methods m ON m.id = x.payment_method
+      WHERE substr(x.date, 1, 10) BETWEEN {:from} AND {:to} ORDER BY x.date DESC, x.created DESC`,
+    { from, to: today }, { id: "", date: "", category: "", amount: 0, note: "", method: "" });
+  return e.json(200, { from, to: today, items });
+}, $apis.requireAuth("users"));
+
 // GET /api/legacy/day?day=YYYY-MM-DD — the old system's totals for one day
 // (Transaksi shows them beside the kasir's own sales). No profit.
 routerAdd("GET", "/api/legacy/day", (e) => {

@@ -2,8 +2,9 @@
 
 // POST /api/pos/checkout — the only way a sale is created.
 // Body: {
-//   items: [{ product, qty, price? }] prices come from the database; kodian per
-//                                    20 pcs; `price` = custom unit price, owner only
+//   items: [{ product, qty, tier?, price? }] prices come from the database;
+//                                    tier normal (default) / kodian / jumbo / kustom
+//                                    (+ price per pcs); all but normal owner only
 //   customer?: user id (role pelanggan)
 //   discount?: rupiah                manual discount — owner/admin only
 //   payments: [{ method, amount }]   Tunai and/or Transfer; change only from cash
@@ -190,6 +191,15 @@ routerAdd("POST", "/api/pos/swap", (e) => {
     if (!back.length) throw new BadRequestError("Pilih barang yang dikembalikan.");
     const employee = L.pickEmployee(tx, b.employee);
 
+    // Returned pcs go back on the shelf first, so the new items are priced and
+    // stock-checked against the stock after the return. Swapping a product
+    // for the same one (another size of a model) then lands on the right
+    // count, and the last pcs on the shelf can be swapped for itself.
+    const number = L.nextSaleNumber(tx);
+    for (const r of back) {
+      L.moveStock(tx, { product: r.product, type: "retur", qty: r.qty, ref: number, note: "Ditukar dari " + orig.getString("number"), by: e.auth.id });
+    }
+
     const cart = L.priceCart(tx, e, { items: b.items });
     const diff = cart.subtotal - backValue;
     if (diff < 0) throw new BadRequestError(`Barang baru (Rp ${L.idr(cart.subtotal)}) lebih murah dari barang yang dikembalikan (Rp ${L.idr(backValue)}). Tukar hanya untuk barang senilai atau lebih mahal; tambah barang atau pilih yang lain.`);
@@ -202,7 +212,7 @@ routerAdd("POST", "/api/pos/swap", (e) => {
 
     const sale = new Record(tx.findCollectionByNameOrId("sales"));
     sale.load({
-      number: L.nextSaleNumber(tx), cashier: e.auth.id, customer: orig.getString("customer"),
+      number, cashier: e.auth.id, customer: orig.getString("customer"),
       subtotal: diff, discount: 0, points_used: 0, total: diff, paid: pay.kept, change: pay.change,
       payment_method: main ? main.pm.id : "", status: "lunas", points_earned: 0, kind: "tukar", ref_sale: orig.id, employee,
       note: (`Tukar dari ${orig.getString("number")}` + (b.note ? " | " + String(b.note) : "")).slice(0, 300),
@@ -215,18 +225,16 @@ routerAdd("POST", "/api/pos/swap", (e) => {
       tx.save(sp);
     }
     const ic = tx.findCollectionByNameOrId("sale_items");
-    const number = sale.getString("number");
     for (const r of back) {
       const it = new Record(ic);
       it.load({ sale: sale.id, product: r.product, name: r.name, qty: -r.qty, price: r.price, hpp: r.hpp, subtotal: -r.price * r.qty, tier: "retur" });
       tx.save(it);
-      L.moveStock(tx, { product: r.product, type: "retur", qty: r.qty, ref: number, note: "Ditukar dari " + orig.getString("number"), by: e.auth.id });
     }
     for (const l of cart.lines) {
       const it = new Record(ic);
       it.load({ sale: sale.id, product: l.p.id, name: l.p.getString("name"), qty: l.qty, price: l.price, hpp: l.hpp, subtotal: l.subtotal, tier: l.tier });
       tx.save(it);
-      L.moveStock(tx, { product: l.p, type: "penjualan", qty: -l.qty, ref: number, note: "Tukar " + orig.getString("number"), by: e.auth.id });
+      L.moveStock(tx, { product: l.p.id, type: "penjualan", qty: -l.qty, ref: number, note: "Tukar " + orig.getString("number"), by: e.auth.id });
     }
   });
   const sale = e.app.findRecordById("sales", saleId);

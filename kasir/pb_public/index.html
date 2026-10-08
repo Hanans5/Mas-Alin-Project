@@ -425,9 +425,15 @@ function printAs(paper) {
 const $ = (s, r = document) => r.querySelector(s);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const rp = n => 'Rp ' + Math.round(n || 0).toLocaleString('id-ID');
-const role = () => S.user?.role || '';
+// A superadmin works as the owner everywhere; realRole() is what the badge shows
+// and what keeps owner accounts out of a superadmin's hands.
+const realRole = () => S.user?.role || '';
+const role = () => realRole() === 'superadmin' ? 'owner' : realRole();
+const isSuperadmin = () => realRole() === 'superadmin';
 const isManager = () => role() === 'owner' || role() === 'admin';
 const isOwner = () => role() === 'owner';
+// The cart's "Harga" button: kasir and admin get Per pcs + Kodian, the owner everything.
+const canPrice = () => isManager() || role() === 'kasir';
 // Till preferences, per device: ask quantity on tap, show product photos.
 const POSP = (() => { try { return Object.assign({ askQty: false, images: false }, JSON.parse(localStorage.getItem('nb_posp') || '{}')); } catch (_) { return { askQty: false, images: false }; } })();
 const savePOSP = () => { try { localStorage.setItem('nb_posp', JSON.stringify(POSP)); } catch (_) {} };
@@ -520,8 +526,8 @@ function renderLogin(err) {
 
 // ── app shell ───────────────────────────────────────
 const TABS = {
-  owner:     [['dash', 'Dasbor'], ['pos', 'Kasir'], ['po', 'Pre-Order'], ['tx', 'Transaksi'], ['online', 'Pesanan Online'], ['ship', 'Pengiriman'], ['prod', 'Produk'], ['stock', 'Stok'], ['fin', 'Keuangan'], ['rep', 'Laporan'], ['users', 'Pengguna'], ['set', 'Pengaturan']],
-  admin:     [['dash', 'Dasbor'], ['pos', 'Kasir'], ['po', 'Pre-Order'], ['tx', 'Transaksi'], ['online', 'Pesanan Online'], ['ship', 'Pengiriman'], ['prod', 'Produk'], ['stock', 'Stok'], ['fin', 'Keuangan'], ['rep', 'Laporan'], ['users', 'Pengguna'], ['set', 'Pengaturan']],
+  owner:     [['dash', 'Dasbor'], ['pos', 'Kasir'], ['po', 'Pre-Order'], ['tx', 'Transaksi'], ['online', 'Pesanan Online'], ['ship', 'Pengiriman'], ['prod', 'Produk'], ['stock', 'Stok'], ['fin', 'Keuangan'], ['rep', 'Laporan'], ['users', 'Pengguna'], ['set', 'Pengaturan'], ['emp', 'Karyawan']],
+  admin:     [['dash', 'Dasbor'], ['pos', 'Kasir'], ['po', 'Pre-Order'], ['tx', 'Transaksi'], ['online', 'Pesanan Online'], ['ship', 'Pengiriman'], ['prod', 'Produk'], ['stock', 'Stok'], ['fin', 'Keuangan'], ['rep', 'Laporan'], ['users', 'Pengguna'], ['set', 'Pengaturan'], ['emp', 'Karyawan']],
   // kasir = the karyawan's shared login; it opens on Kasir (first entry), the menu keeps NAV order
   kasir:     [['pos', 'Kasir'], ['po', 'Pre-Order'], ['dash', 'Dasbor'], ['tx', 'Transaksi'], ['users', 'Pelanggan'], ['fin', 'Keuangan'], ['online', 'Pesanan Online'], ['ship', 'Pengiriman'], ['stock', 'Stok']],
   pelanggan: [['me', 'Akun Saya']],
@@ -587,7 +593,7 @@ const NAV = [
   ['po', null, '', 'po'],
   ['tx', null, '', 'tx'],
   ['pelanggan', 'Pelanggan', '', 'users', () => { US.role = 'pelanggan'; }],
-  ['karyawan', 'Karyawan', '', 'users', () => { US.role = 'karyawan'; }],
+  ['karyawan', 'Karyawan', '', 'emp'],
   ['piutang', 'Piutang', '', 'fin', () => { FS.sub = 'recv'; }],
   ['pengeluaran', 'Pengeluaran', '', 'fin', () => { FS.sub = 'exp'; }],
   ['bukukas', 'Buku Kas', '', 'fin', () => { FS.sub = 'cash'; }, true],
@@ -598,7 +604,7 @@ const NAV = [
   ['stock', null, 'Inventaris', 'stock'],
   ['prod', null, 'Inventaris', 'prod'],
   ['kategori', 'Kategori', 'Inventaris', 'prod', () => { S.openCategories = true; }],
-  ['users', null, 'Pengguna', 'users', () => { if (['pelanggan', 'karyawan'].includes(US.role)) US.role = 'kasir'; }],
+  ['users', null, 'Pengguna', 'users', () => { if (US.role === 'pelanggan') US.role = 'kasir'; }],
   ['set', null, 'Setting', 'set'],
   ['me', null, '', 'me'],
 ];
@@ -616,7 +622,8 @@ function topItems() {
 }
 // Which menu item the current page is (sub-tabs inside a page move it too).
 function activeNav() {
-  if (S.tab === 'users') return US.role === 'pelanggan' ? 'pelanggan' : US.role === 'karyawan' ? 'karyawan' : 'users';
+  if (S.tab === 'users') return US.role === 'pelanggan' ? 'pelanggan' : 'users';
+  if (S.tab === 'emp') return 'karyawan';
   if (S.tab === 'fin') return { recv: 'piutang', exp: 'pengeluaran', cash: 'bukukas', pl: 'labarugi' }[FS.sub] || 'pengeluaran';
   if (S.tab === 'prod' && S.navKey === 'kategori') return 'kategori';
   return S.tab;
@@ -672,7 +679,7 @@ function renderShell() {
     lastGroup = i.group;
     return `${head}<button data-nav="${i.key}">${icon(i.key)}<span>${esc(i.label)}</span>${i.key === 'po' ? ' <span class="beta">Beta</span>' : ''}</button>`;
   }).join('');
-  const who = `<div class="who"><b>${esc(S.user.name || S.user.username)}</b><span class="badge">${esc(role())}</span></div>`;
+  const who = `<div class="who"><b>${esc(S.user.name || S.user.username)}</b><span class="badge">${esc(realRole())}</span></div>`;
   $('#app').innerHTML = `
   <div class="shell" data-nav="${navMode()}">
     <aside class="side" aria-label="Menu">
@@ -698,13 +705,13 @@ function renderShell() {
   $('#scrim').onclick = () => $('.shell').classList.remove('open');
   $('.top .nav').scrollLeft = keep.top; $('.side .side-nav').scrollTop = keep.side;
   syncNav();
-  ({ dash: viewDash, pos: viewPOS, po: viewPO, tx: viewTx, online: viewOnline, ship: viewShip, prod: viewProducts, stock: viewStock, fin: viewFinance, rep: viewReports, users: viewUsers, set: viewSettings, me: viewMe })[S.tab]();
+  ({ dash: viewDash, pos: viewPOS, po: viewPO, emp: viewEmpPerf, tx: viewTx, online: viewOnline, ship: viewShip, prod: viewProducts, stock: viewStock, fin: viewFinance, rep: viewReports, users: viewUsers, set: viewSettings, me: viewMe })[S.tab]();
 }
 
 // ── POS ─────────────────────────────────────────────
 async function loadCatalog() {
   const [p, c, m] = await Promise.all([
-    list('products', { filter: 'active = true', sort: 'name', fields: 'id,name,sku,barcode,category,price,price_kodi,photo,stock,min_stock,unit' }),
+    list('products', { filter: 'active = true', sort: 'name', fields: 'id,name,sku,barcode,category,price,price_kodi,price_jumbo,photo,stock,min_stock,unit' }),
     list('categories', { sort: 'name' }),
     list('payment_methods', { filter: 'active = true', sort: 'created' }),
   ]);
@@ -792,7 +799,7 @@ function renderGrid() {
       ${POSP.images ? (p.photo ? `<img class="pimg" src="/api/files/products/${p.id}/${p.photo}?thumb=160x160" alt="" loading="lazy">` : `<span class="pimg ph" aria-hidden="true">${esc(p.name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase())}</span>`) : ''}
       <span class="n">${esc(p.name)}</span>
       <span class="s ${low ? 'low' : ''}">${esc(p.sku)} · stok ${p.stock}${low ? ' · menipis' : ''}</span>
-      <span class="p num">${rp(p.price)}${p.price_kodi ? `<small class="kodi">kodian ${rp(p.price_kodi)}</small>` : ''}</span>
+      <span class="p num">${rp(p.price)}${p.price_kodi ? `<small class="kodi">kodian ${rp(p.price_kodi)}</small>` : ''}${p.price_jumbo ? `<small class="kodi">jumbo ${rp(p.price_jumbo)}</small>` : ''}</span>
     </button>`;
   }).join('') : `<div class="empty">${S.products.length ? 'Tidak ada produk yang cocok.' : 'Belum ada produk. Owner/admin bisa menambahkan lewat panel admin.'}</div>`;
   $('#grid').querySelectorAll('.prod').forEach(b => b.onclick = () => askQty(b.dataset.id));
@@ -815,56 +822,67 @@ function askQty(id) {
     <form id="aqf"><label class="f" for="aqn">Jumlah</label>
       <input class="input num" id="aqn" inputmode="numeric" value="1" autocomplete="off">
       <div class="chips" style="margin-top:10px;flex-wrap:wrap;overflow:visible">${quick.map(n => `<button type="button" class="chip" data-n="${n}">${n === KODI ? '1 kodi (20)' : n === KODI * 2 ? '2 kodi (40)' : n}</button>`).join('')}</div>
-      <div class="muted sm" style="margin-top:8px">Stok ${p.stock}${p.price_kodi ? ` · kodian ${rp(p.price_kodi)} tiap 20 pcs` : ''}</div>
+      <div class="muted sm" style="margin-top:8px">Stok ${p.stock}${p.price_kodi ? ` · kodian ${rp(p.price_kodi)}` : ''}${p.price_jumbo ? ` · jumbo ${rp(p.price_jumbo)}` : ''}</div>
       <div class="row" style="margin-top:14px"><button type="button" class="btn" id="aqno">Batal</button><button class="btn primary">Tambah</button></div></form>`);
   const i = $('#aqn'); i.focus(); i.select();
   $('#aqno').onclick = closeModal;
   document.querySelectorAll('#aqf [data-n]').forEach(b => b.onclick = () => { i.value = b.dataset.n; i.focus(); });
   $('#aqf').onsubmit = ev => { ev.preventDefault(); const n = parseInt(i.value.replace(/\D/g, ''), 10) || 0; if (n < 1) return i.focus(); closeModal(); addToCart(id, n); };
 }
-// Line pricing, mirroring the server (lib.js splitPrice): every full 20 pcs
-// at the kodian price, the rest at the normal price; a custom price (owner
-// only) covers the whole line. The server recomputes it at checkout.
+// Line pricing, mirroring the server (lib.js splitPrice): the whole line at
+// one price per pcs. l.tier (the "Harga" button; kodian for all staff, the
+// rest owner only): kodian / jumbo
+// = the product's price, kustom = l.price; otherwise the normal price. The
+// server recomputes it at checkout.
 const KODI = 20;
+const TIER_FIELD = { kodian: 'price_kodi', jumbo: 'price_jumbo' };
 function linePricing(l) {
   const p = prodById(l.id);
   if (!p) return [];
-  if (l.price != null) return [{ qty: l.qty, price: l.price, tier: 'kustom' }];
-  if (l.kodian && p.price_kodi > 0) return [{ qty: l.qty, price: p.price_kodi, tier: 'kodian' }];
-  const k = p.price_kodi > 0 ? Math.floor(l.qty / KODI) * KODI : 0;
-  const out = [];
-  if (k) out.push({ qty: k, price: p.price_kodi, tier: 'kodian' });
-  if (l.qty - k) out.push({ qty: l.qty - k, price: p.price, tier: 'normal' });
-  return out;
+  if (l.tier === 'kustom' && l.price > 0) return [{ qty: l.qty, price: l.price, tier: 'kustom' }];
+  const f = TIER_FIELD[l.tier];
+  if (f && p[f] > 0) return [{ qty: l.qty, price: p[f], tier: l.tier }];
+  return [{ qty: l.qty, price: p.price, tier: 'normal' }];
 }
 const lineTotal = l => linePricing(l).reduce((a, x) => a + x.qty * x.price, 0);
+const TIER_NAME = { kodian: 'Kodian', jumbo: 'Jumbo', kustom: 'Kustom' };
 // "2 kodi × Rp 41.000" for whole kodis, "5 × Rp 41.000 kodian" otherwise.
 const partLabel = (x, many) => x.tier === 'kodian' ? (x.qty % KODI ? `${x.qty} × ${rp(x.price)} kodian` : `${x.qty / KODI} kodi × ${rp(x.price)}`)
-  : x.tier === 'kustom' ? `${rp(x.price)} harga khusus` : many ? `${x.qty} × ${rp(x.price)}` : rp(x.price);
+  : x.tier === 'jumbo' ? `${x.qty} × ${rp(x.price)} jumbo` : x.tier === 'kustom' ? `${x.qty} × ${rp(x.price)} harga kustom` : many ? `${x.qty} × ${rp(x.price)}` : rp(x.price);
 const TAG_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>`;
-// The owner's "Harga" button (old POS): automatic (normal, kodian per full
-// 20 pcs) or "Harga kodian" for every pcs of the line, even under 20. A
-// product without a kodian price can get one here (saved to the product).
+// The owner's "Harga" button: the whole line at the price per pcs (default),
+// the kodian price, the jumbo price (when the product has one) or a typed
+// kustom price. A product without a kodian price can get one here (saved to
+// the product). Kasir and admin only see Harga per pcs and Harga kodian.
 function openLinePrice(id) {
   const l = S.cart.find(x => x.id === id), p = prodById(id);
   if (!l || !p) return;
-  const auto = linePricing({ id, qty: l.qty });
-  const kodLine = () => p.price_kodi ? `Semua ${l.qty} pcs × ${rp(p.price_kodi)} = ${rp(l.qty * p.price_kodi)}` : 'Belum ada harga kodian untuk produk ini. Isi di bawah:';
-  openModal(`<h2>Harga</h2><div class="muted" style="margin-bottom:10px">${esc(p.name)} · ${l.qty} pcs · harga normal ${rp(p.price)}</div>
+  const owner = isOwner();
+  const cur = TIER_NAME[l.tier] ? l.tier : 'normal';
+  const all = n => `Semua ${l.qty} pcs × ${rp(n)} = ${rp(l.qty * n)}`;
+  const opt = (v, name, sub, off) => `<label class="pick"><input type="radio" name="lp" value="${v}" ${cur === v ? 'checked' : ''} ${off ? 'disabled' : ''}><span><b>${name}</b><small id="lp-${v}">${sub}</small></span></label>`;
+  openModal(`<h2>Harga</h2><div class="muted" style="margin-bottom:10px">${esc(p.name)} · ${l.qty} pcs</div>
     <form id="lpf" class="choice-list">
-      <label class="pick"><input type="radio" name="lp" value="auto" ${l.kodian ? '' : 'checked'}><span><b>Otomatis</b><small>${auto.map(x => partLabel(x, auto.length > 1)).join(' + ')} = ${rp(auto.reduce((t, x) => t + x.qty * x.price, 0))}</small></span></label>
-      <label class="pick"><input type="radio" name="lp" value="kodian" ${l.kodian ? 'checked' : ''}><span><b>Harga kodian</b><small id="lpk">${kodLine()}</small></span></label>
-      ${p.price_kodi ? '' : `<input class="input num" id="lpv" inputmode="numeric" placeholder="Harga kodian per pcs, mis. ${rp(Math.max(0, p.price - 3000))}">`}
+      ${opt('normal', 'Harga per pcs', all(p.price))}
+      ${opt('kodian', 'Harga kodian', p.price_kodi ? all(p.price_kodi) : owner ? 'Belum ada harga kodian untuk produk ini. Isi di bawah:' : 'Belum ada harga kodian untuk produk ini. Minta pemilik mengisinya di Produk.', !p.price_kodi && !owner)}
+      ${p.price_kodi || !owner ? '' : `<input class="input num" id="lpv" inputmode="numeric" placeholder="Harga kodian per pcs, mis. ${rp(Math.max(0, p.price - 3000))}">`}
+      ${owner && p.price_jumbo ? opt('jumbo', 'Harga jumbo', all(p.price_jumbo)) : ''}
+      ${owner ? `${opt('kustom', 'Harga kustom', 'Isi harga per pcs untuk baris ini:')}
+      <input class="input num" id="lpc" inputmode="numeric" placeholder="Harga per pcs, mis. ${rp(p.price)}" value="${cur === 'kustom' ? l.price : ''}">` : ''}
       <div id="lperr"></div>
       <div class="row" style="margin-top:14px"><button type="button" class="btn" id="lpno">Batal</button><button class="btn primary" id="lpok">Simpan</button></div></form>`);
-  const v = $('#lpv');
-  if (v) v.oninput = () => { document.querySelector('#lpf input[value=kodian]').checked = true; };
+  const v = $('#lpv'), c = $('#lpc');
+  const pick = t => { document.querySelector(`#lpf input[value=${t}]`).checked = true; };
+  const digits = i => parseInt((i.value || '').replace(/\D/g, ''), 10) || 0;
+  if (v) v.oninput = () => pick('kodian');
+  if (c) c.oninput = () => { pick('kustom'); const n = digits(c); $('#lp-kustom').textContent = n ? all(n) : 'Isi harga per pcs untuk baris ini:'; };
+  if (c && cur === 'kustom') c.oninput();
   $('#lpno').onclick = closeModal;
   $('#lpf').onsubmit = async ev => {
     ev.preventDefault();
-    const k = document.querySelector('#lpf input[name=lp]:checked').value === 'kodian';
-    if (k && !p.price_kodi) {
-      const n = parseInt((v.value || '').replace(/\D/g, ''), 10) || 0;
+    const t = document.querySelector('#lpf input[name=lp]:checked').value;
+    if (t === 'kodian' && !p.price_kodi) {
+      const n = digits(v);
       if (!n) { $('#lperr').innerHTML = `<div class="err">Isi harga kodian per pcs.</div>`; return v.focus(); }
       if (n >= p.price) { $('#lperr').innerHTML = `<div class="err">Harga kodian harus lebih murah dari harga normal ${rp(p.price)}.</div>`; return v.focus(); }
       if (p.hpp && n < p.hpp && !confirmInline('lperr', `Di bawah modal (HPP ${rp(p.hpp)}). Tekan Simpan lagi untuk tetap memakai harga ini.`)) return;
@@ -872,8 +890,13 @@ function openLinePrice(id) {
       try { await api(`/api/collections/products/records/${p.id}`, { method: 'PATCH', body: { price_kodi: n } }); p.price_kodi = n; toast(`Harga kodian ${p.name} disimpan: ${rp(n)}.`); }
       catch (e) { $('#lpok').disabled = false; $('#lperr').innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
     }
-    delete l.price;
-    if (k) l.kodian = true; else delete l.kodian;
+    delete l.price; delete l.tier;
+    if (t === 'kustom') {
+      const n = digits(c);
+      if (!n) { $('#lperr').innerHTML = `<div class="err">Isi harga kustom per pcs (lebih dari 0).</div>`; return c.focus(); }
+      if (p.hpp && n < p.hpp && !confirmInline('lperr', `Di bawah modal (HPP ${rp(p.hpp)}). Tekan Simpan lagi untuk tetap memakai harga ini.`)) return;
+      l.tier = 'kustom'; l.price = n;
+    } else if (t !== 'normal') l.tier = t;
     closeModal(); cartChanged();
   };
 }
@@ -890,7 +913,7 @@ function cartChanged() { renderGrid(); renderCart(); schedulePreview(); }
 
 const localSubtotal = () => S.cart.reduce((a, l) => a + lineTotal(l), 0);
 const cartBody = () => ({
-  items: S.cart.map(l => l.custom ? { custom: true, name: l.custom.name, price: l.custom.price, hpp: l.custom.hpp, qty: l.qty } : l.price != null ? { product: l.id, qty: l.qty, price: l.price } : l.kodian ? { product: l.id, qty: l.qty, kodian: true } : { product: l.id, qty: l.qty }),
+  items: S.cart.map(l => l.custom ? { custom: true, name: l.custom.name, price: l.custom.price, hpp: l.custom.hpp, qty: l.qty } : l.tier === 'kustom' ? { product: l.id, qty: l.qty, tier: 'kustom', price: l.price } : l.tier ? { product: l.id, qty: l.qty, tier: l.tier } : { product: l.id, qty: l.qty }),
   customer: S.customer?.id || '', discount: isManager() ? (S.discount || 0) : 0, employee: S.employee || '',
 });
 
@@ -937,7 +960,7 @@ function renderCart() {
       return `<div class="line">
         <div><div class="n">${esc(p.name)}</div><div class="u num ${parts.some(x => x.tier !== 'normal') ? 'special' : ''}">${how}</div></div>
         <div class="t num">${rp(lineTotal(l))}</div>
-        <div class="u">${l.custom ? 'barang custom' : esc(p.sku)}${isOwner() && !l.custom ? ` <button class="lp ${l.kodian ? 'on' : ''}" data-price="${l.id}">${TAG_ICON}${l.kodian ? 'Kodian' : 'Harga'}</button>` : ''}${!isOwner() && p.price_kodi && l.qty < KODI ? ` <span class="muted">· kodian mulai 20 pcs</span>` : ''}</div>
+        <div class="u">${l.custom ? 'barang custom' : esc(p.sku)}${canPrice() && !l.custom ? ` <button class="lp ${TIER_NAME[l.tier] ? 'on' : ''}" data-price="${l.id}">${TAG_ICON}${TIER_NAME[l.tier] || 'Harga'}</button>` : ''}</div>
         <div class="qty">
           <button data-dec="${l.id}" aria-label="Kurangi">−</button>
           <input data-qty="${l.id}" value="${l.qty}" inputmode="numeric" aria-label="Jumlah">
@@ -1301,7 +1324,7 @@ function poSlipHtml(r) {
     ${x.employee ? `<div>Staf: ${esc(x.employee.name)}</div>` : ''}
     ${x.customer ? `<div>Member: ${esc(x.customer.name || x.customer.username)}</div>` : ''}
     ${po.ready_date ? `<div>Perkiraan siap: ${fd(po.ready_date.slice(0, 10))}</div>` : ''}
-    <hr>${items.map(i => `<div>${esc(i.name)}${i.tier === 'kodian' ? ' <small>(kodian)</small>' : i.tier === 'custom' ? ' <small>(custom)</small>' : ''}</div><div class="r"><span>${i.qty} x ${n(i.price)}</span><span>${n(i.subtotal)}</span></div>`).join('')}
+    <hr>${items.map(i => `<div>${esc(i.name)}${i.tier === 'custom' ? ' <small>(custom)</small>' : TIER_NOTE[i.tier] ? ` <small>(${TIER_NOTE[i.tier]})</small>` : ''}</div><div class="r"><span>${i.qty} x ${n(i.price)}</span><span>${n(i.subtotal)}</span></div>`).join('')}
     <hr>${po.discount ? `<div class="r"><span>Diskon</span><span>-${n(po.discount)}</span></div>` : ''}
     <div class="r"><b>TOTAL</b><b>${n(po.total)}</b></div>
     ${dps.map(p => `<div class="r"><span>DP ${esc(p.expand?.payment_method?.name || '')} ${fmtTime(p.created).split(',')[0]}</span><span>${n(p.amount)}</span></div>`).join('')}
@@ -1395,7 +1418,7 @@ function poCancel(po, done) {
 }
 
 // ── receipt ─────────────────────────────────────────
-const TIER_NOTE = { kodian: 'kodian', kustom: 'harga khusus', retur: 'dikembalikan' };
+const TIER_NOTE = { kodian: 'kodian', jumbo: 'jumbo', kustom: 'harga kustom', retur: 'dikembalikan' };
 // Receipt payment lines: each method (cash shown as handed over, change below),
 // "DP" when the rest became a bon; older sales fall back to their one method.
 function payLines(sale, pays) {
@@ -1481,48 +1504,77 @@ async function showReceipt(sale, items, fresh, pays) {
 }
 
 // ── transactions ────────────────────────────────────
+// Transaksi for a period (the same chips as Laporan), optionally one karyawan.
+// Cards come from the server for the whole period; the list loads 100 at a time.
+const TS = { preset: 'today', from: wibToday(), to: wibToday(), employee: '' };
 async function viewTx() {
   const kasir = role() === 'kasir';
-  let day = wibToday();
+  if (TS.preset === 'today') TS.from = TS.to = wibToday();
   $('#view').innerHTML = `
-    <div class="row" style="max-width:420px;margin-bottom:12px">
-      <input class="input" type="date" id="td" value="${day}" max="${day}" aria-label="Tanggal">
-      <button class="btn" id="tbon" style="flex:0 0 auto">Bayar bon</button>
-      <button class="btn" id="tswap" style="flex:0 0 auto">Tukar barang</button>
+    <div class="toolbar" style="margin-bottom:4px">
+      <button class="btn" id="tbon">Bayar bon</button>
+      <button class="btn" id="tswap">Tukar barang</button>
+      <select class="input" id="temp" style="max-width:260px" aria-label="Karyawan"><option value="">Semua karyawan</option></select>
     </div>
+    <div id="trange"></div>
     <div id="tstats"></div>
-    <div class="card" id="tlist"><div class="empty">Memuat…</div></div>`;
+    <div class="card" id="tlist"><div class="empty">Memuat…</div></div><div id="tmore"></div>`;
+  list('employees', { sort: 'name' }).then(r => {
+    $('#temp').innerHTML = `<option value="">Semua karyawan</option>${r.items.map(x => `<option value="${x.id}" ${TS.employee === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}<option value="toko" ${TS.employee === 'toko' ? 'selected' : ''}>Toko (tanpa karyawan)</option>`;
+  }).catch(() => {});
+  $('#temp').onchange = () => { TS.employee = $('#temp').value; load(); };
+  let seq = 0;
   const load = async () => {
-    const next = new Date(Date.parse(day + 'T00:00:00Z') + 86400e3).toISOString().slice(0, 10);
+    const my = ++seq, next = addDays(TS.to, 1), oneDay = TS.from === TS.to;
+    const emp = TS.employee === 'toko' ? ' && employee = ""' : TS.employee ? ` && employee = ${pbq(TS.employee)}` : '';
+    const filter = `created >= "${wibStartUTC(TS.from)}" && created < "${wibStartUTC(next)}"${emp}`;
+    let page = 1, items = [];
+    $('#tlist').innerHTML = `<div class="empty">Memuat…</div>`; $('#tmore').innerHTML = '';
     try {
-      const [r, old] = await Promise.all([list('sales', {
-        filter: `created >= "${wibStartUTC(day)}" && created < "${wibStartUTC(next)}"`,
-        sort: '-created', perPage: 200, expand: 'customer,cashier,payment_method,ref_sale,employee,preorder' }),
-        api(`/api/legacy/day?day=${day}`).then(x => x.legacy).catch(() => null)]);
-      const live = r.items.filter(s => s.status !== 'batal');
+      const [sum, r, old] = await Promise.all([
+        api(`/api/tx/summary?from=${TS.from}&to=${TS.to}${TS.employee ? '&employee=' + encodeURIComponent(TS.employee) : ''}`),
+        list('sales', { filter, sort: '-created', perPage: 100, page, expand: 'customer,cashier,payment_method,ref_sale,employee,preorder' }),
+        oneDay && !TS.employee ? api(`/api/legacy/day?day=${TS.from}`).then(x => x.legacy).catch(() => null) : null]);
+      if (my !== seq) return;
       $('#tstats').innerHTML = `<div class="stats">
-        <div class="card stat"><small>Transaksi</small><b class="num">${live.length}</b></div>
-        <div class="card stat"><small>Omzet</small><b class="num">${rp(live.reduce((a, s) => a + s.total, 0))}</b></div>
-        <div class="card stat"><small>Diterima</small><b class="num">${rp(live.reduce((a, s) => a + s.paid, 0))}</b></div>
+        <div class="card stat"><small>Transaksi</small><b class="num">${sum.count.toLocaleString('id-ID')}</b></div>
+        <div class="card stat"><small>Omzet</small><b class="num">${rp(sum.omzet)}</b></div>
+        <div class="card stat"><small>Diterima</small><b class="num">${rp(sum.paid)}</b></div>
       </div>${old ? `<div class="card legacy-day"><b>Sistem lama: ${old.count.toLocaleString('id-ID')} transaksi, ${rp(old.total)}</b>
         <div class="muted sm">${old.items.toLocaleString('id-ID')} pcs. Hari ini tercatat di sistem lama, hanya total hariannya yang dipindahkan (tanpa rincian per transaksi).</div></div>` : ''}`;
-      $('#tlist').innerHTML = r.items.length ? r.items.map(s => `
+      const row = s => `
         <button class="tx" data-s="${s.id}">
           <span><b class="num">${esc(s.number)}</b> <span class="badge ${s.status === 'lunas' ? 'ok' : s.status === 'batal' ? 'bad' : 'warn'}">${s.status}</span>${isLegacy(s) ? ' <span class="badge">sistem lama</span>' : ''}${s.kind === 'tukar' ? ` <span class="badge">tukar${s.expand?.ref_sale ? ' · ' + esc(s.expand.ref_sale.number) : ''}</span>` : ''}</span>
           <b class="num">${rp(s.total)}</b>
           <small class="muted">${fmtTime(s.created)} · ${esc(s.expand?.customer?.name || 'Umum')}${s.expand?.employee ? ' · ' + esc(s.expand.employee.name) : kasir ? '' : ' · ' + esc(s.expand?.cashier?.name || s.expand?.cashier?.username || '')}</small>
           <small class="muted">${esc(s.expand?.payment_method?.name || '')}</small>
-        </button>`).join('') : `<div class="empty">Belum ada transaksi.</div>`;
-      $('#tlist').querySelectorAll('[data-s]').forEach(b => b.onclick = async () => {
-        const sale = r.items.find(s => s.id === b.dataset.s);
+        </button>`;
+      const wire = () => $('#tlist').querySelectorAll('[data-s]').forEach(b => b.onclick = async () => {
+        const sale = items.find(s => s.id === b.dataset.s);
         try {
           const it = await list('sale_items', { filter: `sale = ${pbq(sale.id)}`, sort: 'created' });
           showReceipt(sale, it.items, false);
         } catch (e) { toast(e.message, true); }
       });
-    } catch (e) { $('#tlist').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+      const more = total => {
+        $('#tmore').innerHTML = items.length < total ? `<button class="btn block" style="margin-top:10px">Tampilkan 100 berikutnya · ${items.length.toLocaleString('id-ID')} dari ${total.toLocaleString('id-ID')}</button>` : '';
+        const btn = $('#tmore button');
+        if (btn) btn.onclick = async () => {
+          btn.disabled = true;
+          try {
+            const r2 = await list('sales', { filter, sort: '-created', perPage: 100, page: ++page, expand: 'customer,cashier,payment_method,ref_sale,employee,preorder' });
+            if (my !== seq) return;
+            items = items.concat(r2.items);
+            $('#tlist').insertAdjacentHTML('beforeend', r2.items.map(row).join('')); wire(); more(r2.totalItems);
+          } catch (e) { toast(e.message, true); btn.disabled = false; }
+        };
+      };
+      items = r.items;
+      $('#tlist').innerHTML = items.length ? items.map(row).join('') : `<div class="empty">Belum ada transaksi${oneDay ? '' : ' di periode ini'}.</div>`;
+      wire(); more(r.totalItems);
+    } catch (e) { if (my === seq) $('#tlist').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
   };
-  if ($('#td')) $('#td').onchange = () => { day = $('#td').value || wibToday(); load(); };
+  rangePicker($('#trange'), TS, load);
   $('#tswap').onclick = askSwap;
   $('#tbon').onclick = () => openBonSearch({ after: () => S.reloadTx?.() });
   S.reloadTx = load;
@@ -1596,7 +1648,7 @@ async function viewProducts() {
         <td data-l="Kategori">${esc(catName(p.category))}</td>
         <td data-l="Stok" class="r num">${low ? `<span class="badge warn">${p.stock}</span>` : p.stock.toLocaleString('id-ID')}</td>
         <td data-l="HPP" class="r num">${rp(p.hpp)}</td>
-        <td data-l="Harga jual" class="r num"><b>${rp(p.price)}</b>${p.price_kodi ? `<div class="muted sm">kodian ${rp(p.price_kodi)}</div>` : ''}</td>
+        <td data-l="Harga jual" class="r num"><b>${rp(p.price)}</b>${p.price_kodi ? `<div class="muted sm">kodian ${rp(p.price_kodi)}</div>` : ''}${p.price_jumbo ? `<div class="muted sm">jumbo ${rp(p.price_jumbo)}</div>` : ''}</td>
         <td data-l="Laba" class="r num" style="color:${margin < 0 ? 'var(--bad)' : 'var(--ok)'}"><span>${rp(margin)}${p.price ? ` <small class="muted">${Math.round(margin / p.price * 100)}%</small>` : ''}</span></td>
         <td class="r"><button class="btn sm" data-edit="${p.id}">Ubah</button> <button class="btn sm" data-stk="${p.id}">Stok</button></td>
       </tr>`;
@@ -1640,8 +1692,13 @@ function editProduct(p, cats, all, reload) {
         <div><label class="f">HPP (modal)</label><input class="input num" id="eh" inputmode="numeric" value="${p.hpp || ''}"></div>
         <div><label class="f">Harga jual</label><input class="input num" id="ep" inputmode="numeric" required value="${p.price || ''}"></div>
       </div>
-      <label class="f">Harga kodian per pcs <small>(berlaku tiap 20 pcs; kosongkan kalau tidak ada)</small></label>
-      <input class="input num" id="ek" inputmode="numeric" value="${p.price_kodi || ''}" placeholder="mis. ${p.price ? Math.max(0, p.price - 1000) : 41000}">
+      <div class="row">
+        <div><label class="f">Harga kodian per pcs <small>(kosongkan kalau tidak ada)</small></label>
+        <input class="input num" id="ek" inputmode="numeric" value="${p.price_kodi || ''}" placeholder="mis. ${p.price ? Math.max(0, p.price - 1000) : 41000}"></div>
+        <div><label class="f">Harga jumbo per pcs <small>(kosongkan kalau tidak ada)</small></label>
+        <input class="input num" id="ej" inputmode="numeric" value="${p.price_jumbo || ''}" placeholder="mis. ${p.price ? p.price + 5000 : 50000}"></div>
+      </div>
+      <div class="muted sm" style="margin-top:6px">Kodian dan jumbo dipilih pemilik lewat tombol Harga di keranjang.</div>
       <div id="emargin" class="muted" style="font-size:14px;margin-top:6px"></div>
       <div class="row">
         <div><label class="f">Peringatan stok di bawah</label><input class="input num" id="em" inputmode="numeric" value="${p.min_stock}"></div>
@@ -1676,12 +1733,13 @@ function editProduct(p, cats, all, reload) {
     const body = {
       name: $('#en').value.trim(), category: $('#ec').value, unit: $('#eu').value.trim(),
       sku: $('#es').value.trim().toUpperCase(), barcode: $('#eb').value.trim(),
-      hpp: num('eh'), price: num('ep'), price_kodi: num('ek'), min_stock: num('em'), active: $('#ea').checked,
+      hpp: num('eh'), price: num('ep'), price_kodi: num('ek'), price_jumbo: num('ej'), min_stock: num('em'), active: $('#ea').checked,
       hide_online: $('#eho').checked, weight: num('ew'), description: $('#ed').value.trim(),
     };
     if (body.price < body.hpp && !confirmInline('eerr', 'Harga jual di bawah HPP — produk ini rugi. Tekan Simpan lagi untuk tetap menyimpan.')) return;
     if (body.price_kodi && body.price_kodi >= body.price) return $('#eerr').innerHTML = `<div class="err">Harga kodian harus lebih murah dari harga jual.</div>`;
     if (body.price_kodi && body.price_kodi < body.hpp && !confirmInline('eerr', 'Harga kodian di bawah HPP. Tekan Simpan lagi untuk tetap menyimpan.')) return;
+    if (body.price_jumbo && body.price_jumbo < body.hpp && !confirmInline('eerr', 'Harga jumbo di bawah HPP. Tekan Simpan lagi untuk tetap menyimpan.')) return;
     $('#eok').disabled = true;
     try {
       const saved = await api(`/api/collections/products/records${isNew ? '' : '/' + p.id}`, { method: isNew ? 'POST' : 'PATCH', body });
@@ -1913,6 +1971,8 @@ async function openSwap(key) {
   const orig = await api(`/api/pos/swap/${encodeURIComponent(key)}`);
   if (!S.products?.length || !S.methods?.length) await loadCatalog();
   const back = Object.fromEntries(orig.items.map(i => [i.product, 0]));
+  // Returned pcs go back on the shelf first (server too), so they count as available.
+  const avail = id => (prodById(id)?.stock || 0) + (back[id] || 0);
   const add = [];
   let q = '', swEmp = '';
   const draw = () => {
@@ -1930,7 +1990,7 @@ async function openSwap(key) {
       </div>`).join('')}
       <h3 class="sec">2. Barang baru</h3>
       <input class="input" id="swq" placeholder="Cari nama / SKU / scan barcode…" value="${esc(q)}" autocomplete="off">
-      ${hits.length ? `<div class="swhits">${hits.map(p => `<button type="button" data-add="${p.id}" ${p.stock ? '' : 'disabled'}><b>${esc(p.name)}</b><span class="muted sm">${rp(p.price)} · stok ${p.stock}</span></button>`).join('')}</div>` : ''}
+      ${hits.length ? `<div class="swhits">${hits.map(p => `<button type="button" data-add="${p.id}" ${avail(p.id) ? '' : 'disabled'}><b>${esc(p.name)}</b><span class="muted sm">${rp(p.price)} · stok ${p.stock}</span></button>`).join('')}</div>` : ''}
       ${add.map(l => { const p = prodById(l.id); return `<div class="swline">
         <div><b>${esc(p.name)}</b><div class="muted sm">${linePricing(l).map(x => partLabel(x, true)).join(' + ')}</div></div>
         <div class="qty"><button type="button" data-nd="${l.id}" aria-label="Kurangi">−</button><input data-nq="${l.id}" value="${l.qty}" inputmode="numeric" aria-label="Jumlah barang baru"><button type="button" data-ni="${l.id}" aria-label="Tambah">+</button></div>
@@ -1950,14 +2010,14 @@ async function openSwap(key) {
     if ($('#swe')) $('#swe').onchange = () => { swEmp = $('#swe').value; draw(); };
     const lim = id => orig.items.find(i => i.product === id).left;
     const setBack = (id, n) => { back[id] = Math.max(0, Math.min(lim(id), parseInt(n, 10) || 0)); draw(); };
-    const setNew = (id, n) => { const l = add.find(x => x.id === id); const p = prodById(id); l.qty = Math.max(0, Math.min(p.stock, parseInt(n, 10) || 0)); if (!l.qty) add.splice(add.indexOf(l), 1); draw(); };
+    const setNew = (id, n) => { const l = add.find(x => x.id === id); const p = prodById(id); l.qty = Math.max(0, Math.min(avail(id), parseInt(n, 10) || 0)); if (!l.qty) add.splice(add.indexOf(l), 1); draw(); };
     document.querySelectorAll('[data-bi]').forEach(b => b.onclick = () => setBack(b.dataset.bi, back[b.dataset.bi] + 1));
     document.querySelectorAll('[data-bd]').forEach(b => b.onclick = () => setBack(b.dataset.bd, back[b.dataset.bd] - 1));
     document.querySelectorAll('[data-bq]').forEach(i => i.onchange = () => setBack(i.dataset.bq, i.value));
     document.querySelectorAll('[data-ni]').forEach(b => b.onclick = () => setNew(b.dataset.ni, add.find(x => x.id === b.dataset.ni).qty + 1));
     document.querySelectorAll('[data-nd]').forEach(b => b.onclick = () => setNew(b.dataset.nd, add.find(x => x.id === b.dataset.nd).qty - 1));
     document.querySelectorAll('[data-nq]').forEach(i => i.onchange = () => setNew(i.dataset.nq, i.value));
-    document.querySelectorAll('[data-add]').forEach(b => b.onclick = () => { const l = add.find(x => x.id === b.dataset.add); if (l) l.qty++; else add.push({ id: b.dataset.add, qty: 1 }); q = ''; draw(); });
+    document.querySelectorAll('[data-add]').forEach(b => b.onclick = () => { const l = add.find(x => x.id === b.dataset.add); if (l) return setNew(l.id, l.qty + 1); add.push({ id: b.dataset.add, qty: 1 }); q = ''; draw(); });
     const sq = $('#swq');
     sq.oninput = () => { q = sq.value; clearTimeout(sq.t); sq.t = setTimeout(() => { draw(); const n = $('#swq'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 200); };
     sq.onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); const p = S.products.find(x => x.barcode && x.barcode === sq.value.trim() || x.sku === sq.value.trim().toUpperCase()); if (p) { const l = add.find(x => x.id === p.id); if (l) l.qty++; else add.push({ id: p.id, qty: 1 }); q = ''; draw(); } } };
@@ -2221,7 +2281,9 @@ function viewFinance() {
   $('#view').innerHTML = `<div id="fsub"></div><div id="frange"></div><div id="fbody"></div>`;
   const draw = () => {
     $('#frange').innerHTML = '';
-    if (FS.sub !== 'recv') rangePicker($('#frange'), FS, draw2);
+    // the kasir login sees only this week's Pengeluaran: no period choice
+    if (FS.sub === 'exp' && role() === 'kasir') $('#frange').innerHTML = `<div class="chips" style="padding:0 0 8px"><span class="chip on">Minggu ini</span></div>`;
+    else if (FS.sub !== 'recv') rangePicker($('#frange'), FS, draw2);
     draw2();
   };
   const draw2 = () => ({ exp: finExpenses, recv: finReceivables, pl: finProfitLoss, cash: finCashbook })[FS.sub]($('#fbody'));
@@ -2236,8 +2298,10 @@ async function finExpenses(el) {
   let methods = [];
   const load = async () => {
     try {
+      const kasirWeek = role() === 'kasir';
       const [r, m] = await Promise.all([
-        list('expenses', { filter: `date >= "${FS.from} 00:00:00.000Z" && date <= "${FS.to} 23:59:59.999Z"`, sort: '-date,-created', expand: 'payment_method' }),
+        kasirWeek ? api('/api/expenses/week').then(w => { S.weekFrom = w.from; return { items: w.items.map(x => ({ ...x, expand: { payment_method: { name: x.method } } })) }; })
+          : list('expenses', { filter: `date >= "${FS.from} 00:00:00.000Z" && date <= "${FS.to} 23:59:59.999Z"`, sort: '-date,-created', expand: 'payment_method' }),
         list('payment_methods', { sort: 'created' }),
       ]);
       methods = m.items;
@@ -2260,7 +2324,7 @@ async function finExpenses(el) {
     x = x || { date: wibToday(), category: '', amount: 0, note: '', payment_method: methods.find(m => m.is_cash)?.id || '' };
     openModal(`<h2>${isNew ? 'Pengeluaran baru' : 'Ubah pengeluaran'}</h2>
       <form id="xf">
-        <div class="row"><div><label class="f">Tanggal</label><input class="input" type="date" id="xd" required value="${x.date.slice(0, 10)}" max="${wibToday()}"></div>
+        <div class="row"><div><label class="f">Tanggal</label><input class="input" type="date" id="xd" required value="${x.date.slice(0, 10)}" max="${wibToday()}" ${role() === 'kasir' && S.weekFrom ? `min="${S.weekFrom}"` : ''}></div>
         <div><label class="f">Jumlah (Rp)</label><input class="input num" id="xa" inputmode="numeric" required value="${x.amount || ''}"></div></div>
         <label class="f">Kategori</label><input class="input" id="xc" list="xcl" required maxlength="60" value="${esc(x.category)}">
         <datalist id="xcl">${EXP_CATS.map(c => `<option value="${c}">`).join('')}</datalist>
@@ -2705,8 +2769,47 @@ async function payBon(b, done) {
 // ── pengguna ────────────────────────────────────────
 // Owner manages everyone. Admin sees pelanggan + kasir and registers pelanggan.
 // Key order is the order of the role menu and the role picker.
-const ROLE_LABEL = { kasir: 'Kasir', admin: 'Admin', owner: 'Owner', pelanggan: 'Pelanggan' };
+const ROLE_LABEL = { kasir: 'Kasir', admin: 'Admin', superadmin: 'Superadmin', owner: 'Owner', pelanggan: 'Pelanggan' };
 const US = { role: 'kasir', q: '', psort: 'belanja' };
+const ES = { preset: 'month', from: presetRange('month')[0], to: wibToday() };   // Karyawan page period
+// Karyawan menu: who sold what in a period (the Laporan → Karyawan figures,
+// laba for the owner only). A name opens that karyawan's transactions.
+// Adding/editing karyawan stays in Pengguna → Karyawan.
+let empSeq = 0;
+async function viewEmpPerf() {
+  $('#view').innerHTML = `<div class="toolbar" style="margin-bottom:4px"><h2 style="margin:0;flex:1;font-size:20px">Penjualan karyawan</h2>
+      ${isOwner() ? `<button class="btn" id="empmanage">Kelola karyawan →</button>` : ''}</div>
+    <div id="erange"></div><div id="enote"></div>
+    <div class="card tblwrap"><table class="tbl" id="etbl"><tbody><tr><td class="empty">Memuat…</td></tr></tbody></table></div>`;
+  if ($('#empmanage')) $('#empmanage').onclick = () => { US.role = 'karyawan'; goNav('users'); };
+  const load = async () => {
+    const my = ++empSeq;
+    $('#etbl').innerHTML = `<tbody><tr><td class="empty">Memuat…</td></tr></tbody>`;
+    let perf, emps;
+    try {
+      [perf, emps] = await Promise.all([api(`/api/reports/table?type=karyawan&from=${ES.from}&to=${ES.to}`), list('employees', { sort: 'name' }).then(r => r.items)]);
+    } catch (e) { if (my === empSeq) $('#etbl').innerHTML = `<tbody><tr><td><div class="err">${esc(e.message)}</div></td></tr></tbody>`; return; }
+    if (my !== empSeq || !$('#etbl')) return;
+    const laba = perf.columns.some(c => c.key === 'laba');
+    const by = Object.fromEntries(perf.rows.map(r => [r.nama, r]));
+    const zero = { penjualan: 0, transaksi: 0, items: 0, laba: 0 };
+    // every active karyawan (even with no sales), anyone inactive who sold, then Toko
+    const rows = emps.filter(x => x.active || by[x.name]).map(x => ({ id: x.id, name: x.name, off: !x.active, p: by[x.name] || zero }))
+      .sort((a, b) => b.p.penjualan - a.p.penjualan || a.name.localeCompare(b.name, 'id'));
+    if (by['Toko']) rows.push({ id: 'toko', name: 'Toko', sub: 'tanpa karyawan', p: by['Toko'] });
+    const tot = rows.reduce((a, r) => ({ penjualan: a.penjualan + r.p.penjualan, transaksi: a.transaksi + r.p.transaksi, items: a.items + r.p.items, laba: a.laba + (r.p.laba || 0) }), { ...zero });
+    const cells = (p, b) => `<td data-l="Penjualan" class="r num">${b ? '<b>' : ''}${rp(p.penjualan)}${b ? '</b>' : ''}</td><td data-l="Transaksi" class="r num">${b ? '<b>' : ''}${p.transaksi.toLocaleString('id-ID')}${b ? '</b>' : ''}</td>
+      <td data-l="Item" class="r num">${b ? '<b>' : ''}${p.items.toLocaleString('id-ID')}${b ? '</b>' : ''}</td>${laba ? `<td data-l="Laba" class="r num">${b ? '<b>' : ''}${rp(p.laba)}${b ? '</b>' : ''}</td>` : ''}`;
+    $('#enote').innerHTML = perf.legacy?.included ? `<p class="muted sm" style="margin:0 0 8px">Termasuk total sistem lama.</p>` : '';
+    $('#etbl').innerHTML = `<thead><tr><th>Karyawan</th><th class="r">Penjualan</th><th class="r">Transaksi</th><th class="r">Item</th>${laba ? '<th class="r">Laba</th>' : ''}</tr></thead><tbody>
+      ${rows.length ? rows.map(r => `<tr class="${r.off ? 'off' : ''}"><td data-l="Karyawan"><button class="link" data-tx="${r.id}"><b>${esc(r.name)}</b></button>${r.sub ? `<div class="muted sm">${r.sub}</div>` : r.off ? '<div class="muted sm">nonaktif</div>' : ''}</td>${cells(r.p)}</tr>`).join('')
+        : `<tr><td colspan="5" class="empty">Belum ada penjualan di periode ini.</td></tr>`}
+      ${rows.length ? `<tr class="totrow"><td data-l=""><b>Total</b></td>${cells(tot, true)}</tr>` : ''}</tbody>`;
+    $('#etbl').querySelectorAll('[data-tx]').forEach(b => b.onclick = () => { Object.assign(TS, { employee: b.dataset.tx, from: ES.from, to: ES.to, preset: ES.preset }); goNav('tx'); });
+  };
+  rangePicker($('#erange'), ES, load);
+  load();
+}
 async function viewUsers() {
   const owner = role() === 'owner', kasir = role() === 'kasir';
   // Pick a role first, then see that role's people (admin sees kasir + pelanggan only;
@@ -2745,7 +2848,7 @@ async function viewUsers() {
       <td data-l="No HP">${esc(u.phone) || '<span class="muted">—</span>'}</td>
       ${pel ? `<td data-l="Total belanja" class="r num"><b>${rp(sp(u).total)}</b><div class="muted sm">${sp(u).trx.toLocaleString('id-ID')}× belanja${sp(u).legacy ? ' · termasuk sistem lama' : ''}</div></td><td data-l="Bon" class="r num">${sp(u).bon ? `<span class="badge warn">${rp(sp(u).bon)}</span>` : '<span class="muted">—</span>'}</td>` : ''}
       <td data-l="Status">${u.disabled ? '<span class="badge bad">nonaktif</span>' : '<span class="badge ok">aktif</span>'}</td>
-      <td class="r">${kasir ? `<button class="btn sm" data-bon="${u.id}">Bon</button>` : pel ? `<button class="btn sm" data-c="${u.id}">Buka</button>` : owner ? `<button class="btn sm" data-u="${u.id}">Ubah</button>` : ''}</td></tr>`).join('')
+      <td class="r">${kasir ? `<button class="btn sm" data-bon="${u.id}">Bon</button>` : pel ? `<button class="btn sm" data-c="${u.id}">Buka</button>` : owner && !(isSuperadmin() && u.role === 'owner') ? `<button class="btn sm" data-u="${u.id}">Ubah</button>` : ''}</td></tr>`).join('')
       : `<tr><td colspan="5" class="empty">${q ? 'Tidak ada yang cocok.' : `Belum ada ${ROLE_LABEL[US.role].toLowerCase()}.`}</td></tr>`;
     $('#utbl').querySelectorAll('[data-u]').forEach(b => b.onclick = () => editUser(all.find(u => u.id === b.dataset.u)));
     $('#utbl').querySelectorAll('[data-c]').forEach(b => b.onclick = () => viewCustomer(all.find(u => u.id === b.dataset.c), viewUsers));
@@ -2755,7 +2858,7 @@ async function viewUsers() {
   };
   const drawEmp = q => {
     $('#unew').textContent = '+ Karyawan';
-    $('#uhint').innerHTML = `<p class="muted" style="margin:0 0 10px">Karyawan dipilih di kasir untuk setiap penjualan (Laporan → Karyawan). Mereka tidak perlu akun login. Penjualan tanpa karyawan (misalnya pemilik yang melayani) dipilih sebagai "Toko".</p>`;
+    $('#uhint').innerHTML = `<p class="muted" style="margin:0 0 10px">Karyawan dipilih di kasir untuk setiap penjualan. Mereka tidak perlu akun login. Penjualannya ada di menu Karyawan.</p>`;
     $('#utbl thead').innerHTML = `<tr><th>Nama</th><th>No HP</th><th>Status</th><th></th></tr>`;
     const rows = emps.filter(x => !q || [x.name, x.phone].some(v => (v || '').toLowerCase().includes(q)))
       .sort((a, b) => (a.active ? 0 : 1) - (b.active ? 0 : 1) || a.name.localeCompare(b.name, 'id'));
@@ -2800,7 +2903,7 @@ async function viewUsers() {
       <form id="gf">
         <label class="f">Nama</label><input class="input" id="gn" required maxlength="100" value="${esc(u.name)}">
         <div class="row"><div><label class="f">Username</label><input class="input" id="gu" required pattern="[a-z0-9_.]{3,32}" title="3–32 huruf kecil, angka, titik atau _" autocapitalize="none" value="${esc(u.username)}"></div>
-        <div><label class="f">Peran</label><select class="input" id="gr" ${!owner || self ? 'disabled' : ''}>${Object.entries(ROLE_LABEL).filter(([k]) => owner || k === 'pelanggan').map(([k, l]) => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
+        <div><label class="f">Peran</label><select class="input" id="gr" ${!owner || self ? 'disabled' : ''}>${Object.entries(ROLE_LABEL).filter(([k]) => (owner || k === 'pelanggan') && (!isSuperadmin() || !['owner', 'superadmin'].includes(k) || u.role === k)).map(([k, l]) => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
         <div class="row"><div><label class="f">No HP / WA</label><input class="input" id="gp" inputmode="tel" maxlength="20" value="${esc(u.phone)}"></div>
         <div></div></div>
         <label class="f">Alamat</label><input class="input" id="ga" maxlength="300" value="${esc(u.address)}">

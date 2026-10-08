@@ -3,6 +3,7 @@ pb_data/
 backups/
 ACCOUNTS.md
 ACCOUNTS.txt
+kasir/Akun*.txt
 kasir/pocketbase
 *.db
 *.db-*

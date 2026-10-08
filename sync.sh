@@ -5,7 +5,7 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 rsync -a --delete \
-  --exclude pb_data/ --exclude backups/ --exclude ACCOUNTS.md --exclude ACCOUNTS.txt --exclude /pocketbase \
+  --exclude pb_data/ --exclude backups/ --exclude ACCOUNTS.md --exclude ACCOUNTS.txt --exclude 'Akun*.txt' --exclude /pocketbase \
   --exclude .gitignore --exclude '*.db' --exclude '*.db-*' \
   ~/nelin-batik/ "$here/kasir/"
 rsync -a --delete --exclude backups/ ~/nelin-store/ "$here/toko-online/"

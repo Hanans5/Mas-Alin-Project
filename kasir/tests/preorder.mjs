@@ -33,11 +33,21 @@ const today = new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10);
 const cash = async () => (await api(O, "GET", `/api/reports/cashbook?from=${today}&to=${today}`)).body;
 const poLines = async (number) => (await cash()).lines.filter((l) => l.ref === number);
 
-// 1. preview: no stock check, kodian per 20, min DP 30 %
+// 1. preview: no stock check, one price per pcs (no automatic kodian), min DP 30 %
 const items = [{ product: prod.id, qty: 25 }];
 const pv = await api(K, "POST", "/api/po/preview", { items, customer: cust.id });
 check("preview of 25 pcs with only 5 in stock is allowed", pv.status === 200, pv.body);
-check("kodian per full 20 pcs: 20×45.000 + 5×50.000", pv.body.total === 20 * 45000 + 5 * 50000, pv.body);
+check("per pcs by default: 25 × 50.000", pv.body.total === 25 * 50000, pv.body);
+const pvK = await api(O, "POST", "/api/po/preview", { items: [{ product: prod.id, qty: 5, tier: "kodian" }, { product: prod.id, qty: 1 }], customer: cust.id });
+check("owner 'Harga kodian' on a pre-order line: 6 × 45.000", pvK.status === 200 && pvK.body.total === 6 * 45000, pvK.body);
+const pvC = await api(O, "POST", "/api/po/preview", { items: [{ product: prod.id, qty: 2, tier: "kustom", price: 60000 }], customer: cust.id });
+check("owner 'Harga kustom' on a pre-order line: 2 × 60.000", pvC.status === 200 && pvC.body.total === 120000, pvC.body);
+check("kasir can't use 'Harga kustom' on a pre-order (403)", (await api(K, "POST", "/api/po/preview", { items: [{ product: prod.id, qty: 2, tier: "kustom", price: 60000 }], customer: cust.id })).status === 403);
+const pvKK = await api(K, "POST", "/api/po/preview", { items: [{ product: prod.id, qty: 3, tier: "kodian" }], customer: cust.id });
+check("kasir 'Harga kodian' on a pre-order line: 3 × 45.000", pvKK.status === 200 && pvKK.body.total === 3 * 45000, pvKK.body);
+await api(O, "PATCH", `/api/collections/products/records/${prod.id}`, { price_jumbo: 55000 });
+check("kasir can't use 'Harga jumbo' on a pre-order (403)", (await api(K, "POST", "/api/po/preview", { items: [{ product: prod.id, qty: 2, tier: "jumbo" }], customer: cust.id })).status === 403);
+await api(O, "PATCH", `/api/collections/products/records/${prod.id}`, { price_jumbo: 0 });
 check("min DP is 30 % rounded up to Rp 1.000", pv.body.min_dp === Math.ceil(pv.body.total * 0.3 / 1000) * 1000, pv.body);
 check("pre-order needs a pelanggan", (await api(K, "POST", "/api/po/preview", { items })).status === 400);
 
