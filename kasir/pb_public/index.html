@@ -3323,7 +3323,11 @@ const COLOR_THEMES = [['mahogany', 'Mahogany', '#4A0404'], ['awal', 'Tema awal',
   ['dark-mahogany', 'Dark Mahogany', '#482029'], ['light-mahogany', 'Light Mahogany', '#AD6D68'], ['cherry-mahogany', 'Cherry Mahogany', '#66362C'],
   ['chestnut', 'Chestnut', '#954535'], ['burnt-mahogany', 'Burnt Mahogany', '#340A0D'], ['cinnamon-brown', 'Cinnamon Brown', '#9E6A19'],
   ['african-mahogany', 'African Mahogany', '#CD4A4A'], ['american-mahogany', 'American Mahogany', '#52352F'], ['bright-mahogany', 'Bright Mahogany', '#86341F'],
-  ['burnt-sienna', 'Burnt Sienna', '#E97451'], ['deep-mahogany', 'Deep Mahogany', '#553B39'], ['mahogany-brown', 'Mahogany Brown', '#4C2B20']];
+  ['burnt-sienna', 'Burnt Sienna', '#E97451'], ['deep-mahogany', 'Deep Mahogany', '#553B39'], ['mahogany-brown', 'Mahogany Brown', '#4C2B20'],
+  // Burgundy series (2026-10-08), shown as its own group in Tampilan.
+  ['burgundy', 'Burgundy', '#800020', 'burgundy'], ['deep-burgundy', 'Deep Burgundy', '#4B0016', 'burgundy'], ['wine', 'Wine', '#722F37', 'burgundy'],
+  ['merlot', 'Merlot', '#730039', 'burgundy'], ['bordeaux', 'Bordeaux', '#5F021F', 'burgundy'], ['oxblood', 'Oxblood', '#4A0000', 'burgundy'],
+  ['maroon', 'Maroon', '#800000', 'burgundy'], ['claret', 'Claret', '#7F1734', 'burgundy']];
 const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
 const rgbHex = c => '#' + c.map(v => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('');
 const mixHex = (a, b, t) => rgbHex(hexRgb(a).map((v, i) => v + (hexRgb(b)[i] - v) * t));
@@ -3381,9 +3385,11 @@ function setTheme(el) {
   const curColor = S.settings.theme_color || 'mahogany', owner = role() === 'owner';
   el.innerHTML = `<div class="card formcard">
     <label class="f" style="margin-top:0">Warna tema</label>
-    <div class="swatches" role="radiogroup" aria-label="Warna tema">${COLOR_THEMES.map(([k, l, c]) => `
+    ${[['', 'Mahogany'], ['burgundy', 'Burgundy']].map(([g, gl]) => `
+    <div class="muted sm" style="margin:${g ? '14px' : '4px'} 0 6px;font-weight:700">${gl}</div>
+    <div class="swatches" role="radiogroup" aria-label="Warna tema ${gl}">${COLOR_THEMES.filter(t => (t[3] || '') === g).map(([k, l, c]) => `
       <button type="button" class="swatch ${curColor === k ? 'on' : ''}" data-color="${k}" role="radio" aria-checked="${curColor === k}" ${owner ? '' : 'disabled'}>
-        <i style="background:${c}"></i><span><b>${l}</b><small>${k === 'awal' ? 'oranye, sebelum Mahogany' : k === 'mahogany' ? 'bawaan' : c}</small></span></button>`).join('')}</div>
+        <i style="background:${c}"></i><span><b>${l}</b><small>${k === 'awal' ? 'oranye, sebelum Mahogany' : k === 'mahogany' ? 'bawaan' : c}</small></span></button>`).join('')}</div>`).join('')}
     <p class="muted sm" style="margin:12px 0 0">${owner ? 'Berlaku untuk semua perangkat. Warna teks diatur otomatis supaya tetap terbaca.' : 'Hanya pemilik yang bisa mengganti warna tema; berlaku untuk semua perangkat.'}</p>
     <label style="display:flex;gap:10px;align-items:center;margin-top:14px;font-weight:600"><input type="checkbox" id="wmon" ${S.settings.hide_watermark ? '' : 'checked'} ${owner ? '' : 'disabled'}> Watermark logo di tengah layar</label></div>
   <div class="card formcard" style="margin-top:12px">

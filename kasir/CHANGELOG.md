@@ -1,5 +1,8 @@
 # Nelin Batik kasir: changelog
 
+## 2026-10-08: Burgundy colour themes
+- Pengaturan → Tampilan → Warna tema now has two groups: Mahogany (unchanged) and **Burgundy** with 8 shades: Burgundy, Deep Burgundy, Wine, Merlot, Bordeaux, Oxblood, Maroon, Claret. Each is a full theme in light and dark, with text colours computed to stay readable (every checked pair at least 4.5:1). The default and the current choice don't change.
+
 ## 2026-10-08: Transaksi search, copyable rows
 - Search box in Transaksi: receipt number, pelanggan, karyawan, kasir (not for the kasir login), product on the receipt, or an amount (`56000`, `56.000`, `Rp 56.000`). It searches the chosen period; ✕ clears it. While searching, the cards give way to the number of matches.
 - Transaksi rows and the struk text can be selected and copied: dragging over a row selects text instead of opening the struk; a plain click (or Enter) still opens it.
