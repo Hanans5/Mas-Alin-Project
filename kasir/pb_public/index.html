@@ -961,7 +961,7 @@ function renderCart() {
       <button class="btn ghost sm only-mobile" id="cclose" aria-label="Tutup">←</button>
       <button class="cust" id="pickCust">${c
         ? `<b>${esc(c.name || c.username)}</b><small>${esc(c.phone || '@' + c.username)}</small>`
-        : `<b>Pelanggan umum</b><small>Ketuk untuk pilih / daftar member</small>`}</button>
+        : `<b>Toko</b><small>Pelanggan umum · ketuk untuk pilih / daftar member</small>`}</button>
       ${c ? `<button class="btn ghost sm" id="clrCust" aria-label="Hapus pelanggan">✕</button>` : ''}
     </div>
     ${c && S.customerBon ? `<button class="bonnote" id="cbon">Bon belum lunas <b class="num">${rp(S.customerBon.total)}</b> · Bayar</button>` : ''}
@@ -1036,15 +1036,21 @@ function openModal(html) {
 function closeModal() { $('#modal').innerHTML = ''; }
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && $('#mbg')) closeModal(); });
 
+// The walk-in pelanggan "Toko" (settings.walkin_customer): a sale without a
+// pelanggan is booked on it; receipts show no "Member:" line for it.
+const isWalkin = c => !!c && !!S.settings?.walkin_customer && (c.id || c) === S.settings.walkin_customer;
+const randomPassword = () => Array.from(crypto.getRandomValues(new Uint8Array(18)), b => 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'[b % 56]).join('');
 function openCustomerPicker() {
   openModal(`
     <h2>Pilih pelanggan</h2>
     <input class="input" id="cq" placeholder="Cari nama, username, atau no HP" autocomplete="off" style="margin-top:10px">
-    <div id="cres" style="margin-top:6px"></div>
+    <button class="list-item" id="ctoko" style="margin-top:6px"><span><b>Toko</b><br><small class="muted">Pelanggan umum (tanpa member)</small></span></button>
+    <div id="cres"></div>
     <button class="btn block" id="cnew" style="margin-top:12px">+ Daftar member baru</button>`);
   const run = async () => {
     const v = $('#cq').value.trim();
-    const f = v ? `role = "pelanggan" && (name ~ ${pbq(v)} || username ~ ${pbq(v)} || phone ~ ${pbq(v)})` : 'role = "pelanggan"';
+    const walk = S.settings?.walkin_customer ? ` && id != ${pbq(S.settings.walkin_customer)}` : '';
+    const f = (v ? `role = "pelanggan" && (name ~ ${pbq(v)} || username ~ ${pbq(v)} || phone ~ ${pbq(v)})` : 'role = "pelanggan"') + walk;
     try {
       const r = await list('users', { filter: f, sort: '-updated', perPage: 20, fields: 'id,name,username,phone' });
       if (!$('#cres')) return;
@@ -1060,18 +1066,19 @@ function openCustomerPicker() {
   };
   let t; $('#cq').oninput = () => { clearTimeout(t); t = setTimeout(run, 200); };
   $('#cnew').onclick = openNewCustomer;
+  $('#ctoko').onclick = () => { S.customer = null; S.customerBon = null; closeModal(); renderCart(); schedulePreview(); };
   $('#cq').focus(); run();
 }
 
 function openNewCustomer() {
   openModal(`
     <h2>Daftar member baru</h2>
-    <div class="muted" style="font-size:14px">Pelanggan bisa login dengan username & password ini untuk melihat riwayat belanja dan bon.</div>
+    <div class="muted" style="font-size:14px">Password boleh dikosongkan. Isi jika pelanggan ingin login untuk melihat riwayat belanja dan bon.</div>
     <form id="nf">
       <label class="f">Nama</label><input class="input" id="nn" required maxlength="100">
       <label class="f">No HP / WhatsApp</label><input class="input" id="nh" inputmode="tel" maxlength="20">
       <label class="f">Username</label><input class="input" id="nu" required autocapitalize="none" pattern="[a-z0-9_.]{3,32}" title="3–32 huruf kecil, angka, titik atau _">
-      <label class="f">Password (min. 8)</label><input class="input" id="np" required minlength="8">
+      <label class="f">Password <small>(opsional, min. 8)</small></label><input class="input" id="np" minlength="8" autocomplete="new-password">
       <div id="nerr"></div>
       <div class="row" style="margin-top:16px"><button type="button" class="btn" id="nback">Batal</button><button class="btn primary" id="nsave">Simpan</button></div>
     </form>`);
@@ -1083,7 +1090,7 @@ function openNewCustomer() {
     ev.preventDefault();
     $('#nsave').disabled = true;
     try {
-      const pw = $('#np').value;
+      const pw = $('#np').value || randomPassword();
       const u = await api('/api/collections/users/records', { method: 'POST', body: {
         name: $('#nn').value.trim(), phone: $('#nh').value.trim(), username: $('#nu').value.trim().toLowerCase(),
         password: pw, passwordConfirm: pw, role: 'pelanggan' } });
@@ -1336,7 +1343,7 @@ function poSlipHtml(r) {
     <div class="c"><b>NOTA PRE-ORDER</b></div>
     <div>${esc(po.number)}</div><div>${fmtTime(po.created)} · ${esc(cashierLabel(x.cashier))}</div>
     <div>Staf: ${esc(x.employee ? x.employee.name : 'Toko')}</div>
-    ${x.customer ? `<div>Member: ${esc(x.customer.name || x.customer.username)}</div>` : ''}
+    ${x.customer && !isWalkin(x.customer) ? `<div>Member: ${esc(x.customer.name || x.customer.username)}</div>` : ''}
     ${po.ready_date ? `<div>Perkiraan siap: ${fd(po.ready_date.slice(0, 10))}</div>` : ''}
     <hr>${items.map(i => `<div>${esc(i.name)}${i.tier === 'custom' ? ' <small>(custom)</small>' : TIER_NOTE[i.tier] ? ` <small>(${TIER_NOTE[i.tier]})</small>` : ''}</div><div class="r"><span>${i.qty} x ${n(i.price)}</span><span>${n(i.subtotal)}</span></div>`).join('')}
     <hr>${po.discount ? `<div class="r"><span>Diskon</span><span>-${n(po.discount)}</span></div>` : ''}
@@ -1461,7 +1468,7 @@ function receiptHtml(sale, items, pays) {
     <div>${esc(sale.number)}</div>
     <div>${fmtTime(sale.created)} · ${esc(cashierLabel(x.cashier))}</div>
     <div>Staf: ${esc(x.employee ? x.employee.name : 'Toko')}</div>
-    ${x.customer ? `<div>Member: ${esc(x.customer.name || x.customer.username)}</div>` : ''}
+    ${x.customer && !isWalkin(x.customer) ? `<div>Member: ${esc(x.customer.name || x.customer.username)}</div>` : ''}
     <hr>
     ${sale.kind === 'tukar' ? `<div><b>TUKAR BARANG</b>${x.ref_sale ? ' dari ' + esc(x.ref_sale.number) : ''}</div><hr>` : ''}
     ${items.map(i => `<div>${esc(i.name)}${TIER_NOTE[i.tier] ? ` <small>(${TIER_NOTE[i.tier]})</small>` : ''}</div><div class="r"><span>${i.qty} x ${i.price.toLocaleString('id-ID')}</span><span>${i.subtotal.toLocaleString('id-ID')}</span></div>`).join('')}
@@ -1557,7 +1564,7 @@ async function escposReceipt(sale, items, pays) {
   line(sale.number);
   wrap(`${fmtTime(sale.created)} - ${cashierLabel(x.cashier)}`).forEach(l => line(l));
   wrap('Staf: ' + (x.employee ? x.employee.name : 'Toko')).forEach(l => line(l));
-  if (x.customer) wrap('Member: ' + (x.customer.name || x.customer.username)).forEach(l => line(l));
+  if (x.customer && !isWalkin(x.customer)) wrap('Member: ' + (x.customer.name || x.customer.username)).forEach(l => line(l));
   sep();
   if (sale.kind === 'tukar') { bold(1); line('TUKAR BARANG'); bold(0); if (x.ref_sale) line('dari ' + x.ref_sale.number); sep(); }
   for (const i of items) {
@@ -1738,7 +1745,7 @@ async function viewTx() {
         <button class="tx" data-s="${s.id}">
           <span><b class="num">${esc(s.number)}</b> <span class="badge ${s.status === 'lunas' ? 'ok' : s.status === 'batal' ? 'bad' : 'warn'}">${s.status}</span>${isLegacy(s) ? ' <span class="badge">sistem lama</span>' : ''}${s.kind === 'tukar' ? ` <span class="badge">tukar${s.expand?.ref_sale ? ' · ' + esc(s.expand.ref_sale.number) : ''}</span>` : ''}</span>
           <b class="num">${rp(s.total)}</b>
-          <small class="muted">${fmtTime(s.created)} · ${esc(s.expand?.customer?.name || 'Umum')}${s.expand?.employee ? ' · ' + esc(s.expand.employee.name) : ' · ' + esc(cashierLabel(s.expand?.cashier))}</small>
+          <small class="muted">${fmtTime(s.created)} · ${esc(s.expand?.customer?.name || 'Toko')}${s.expand?.employee ? ' · ' + esc(s.expand.employee.name) : ' · ' + esc(cashierLabel(s.expand?.cashier))}</small>
           <small class="muted">${esc(s.expand?.payment_method?.name || '')}</small>
         </button>`;
       const wire = () => $('#tlist').querySelectorAll('[data-s]').forEach(b => b.onclick = async () => {
@@ -2174,7 +2181,7 @@ async function openSwap(key) {
     const hits = q.trim().length >= 2 ? S.products.filter(p => (p.name + ' ' + p.sku + ' ' + (p.barcode || '')).toLowerCase().includes(q.trim().toLowerCase())).slice(0, 6) : [];
     openModal(`
       <h2>Tukar barang <span class="num muted" style="font-size:15px">${esc(orig.number)}</span></h2>
-      <div class="muted">${fmtTime(orig.created)} · ${esc(orig.customer || 'Umum')} · total ${rp(orig.total)}</div>
+      <div class="muted">${fmtTime(orig.created)} · ${esc(orig.customer || 'Toko')} · total ${rp(orig.total)}</div>
       <h3 class="sec">1. Barang yang dikembalikan</h3>
       ${orig.items.map(i => `<div class="swline ${i.left ? '' : 'off'}">
         <div><b>${esc(i.name)}</b><div class="muted sm">${rp(i.price)}/pcs · dibeli ${i.sold}${i.returned ? `, sudah ditukar ${i.returned}` : ''}</div></div>
@@ -2398,7 +2405,8 @@ async function dashOverview(el) {
     for (const r of [...sales.perDay, ...sales.legacy]) { const b = at[byDay ? r.day : r.day.slice(0, 7)]; if (b) { b.total += r.total; b.count += r.count; } }
     const oldTotal = sales.legacy.reduce((a, d) => a + d.total, 0);
     const omzet = buckets.reduce((a, b) => a + b.total, 0), trx = buckets.reduce((a, b) => a + b.count, 0);
-    const people = cust.rows.filter(r => r.nama !== 'Umum (tanpa member)'), umum = cust.rows.find(r => r.nama === 'Umum (tanpa member)');
+    const walk = r => r.nama === 'Toko' || r.nama === 'Umum (tanpa member)';
+    const people = cust.rows.filter(r => !walk(r)), umum = cust.rows.find(walk);
     $('#ovb', el).innerHTML = `
       <div class="stats">
         <div class="card stat"><small>Omzet</small><b class="num">${rp(omzet)}</b></div>
@@ -2414,7 +2422,7 @@ async function dashOverview(el) {
       </section>
       <div class="two" style="margin-top:16px">
         <section class="card"><h3 class="sec" style="margin:14px 14px 0">Performa pelanggan</h3>${hbars(people.slice(0, 8), r => `${r.transaksi.toLocaleString('id-ID')}× belanja · rata-rata ${rp(Math.round(r.penjualan / Math.max(1, r.transaksi)))}`, 'Belum ada belanja pelanggan di periode ini.')}
-          <div class="ov-foot"><span>${umum ? `Pembeli umum (tanpa member): ${rp(umum.penjualan)}` : ''}</span><button class="btn sm" data-rep="pelanggan">Laporan lengkap</button></div></section>
+          <div class="ov-foot"><span>${umum ? `Toko (pelanggan umum): ${rp(umum.penjualan)}` : ''}</span><button class="btn sm" data-rep="pelanggan">Laporan lengkap</button></div></section>
         <section class="card"><h3 class="sec" style="margin:14px 14px 0">Penjualan karyawan</h3>${hbars(emp.rows, r => `${r.transaksi.toLocaleString('id-ID')} transaksi · ${r.items.toLocaleString('id-ID')} pcs`, 'Belum ada penjualan di periode ini.')}
           <div class="ov-foot"><span>"Toko" = dilayani pemilik atau pesanan online</span><button class="btn sm" data-rep="karyawan">Laporan lengkap</button></div></section>
       </div>`;
@@ -3099,11 +3107,18 @@ async function viewUsers() {
         <div class="row"><div><label class="f">No HP / WA</label><input class="input" id="gp" inputmode="tel" maxlength="20" value="${esc(u.phone)}"></div>
         <div></div></div>
         <label class="f">Alamat</label><input class="input" id="ga" maxlength="300" value="${esc(u.address)}">
-        <label class="f">${isNew ? 'Password (min. 8)' : 'Password baru (kosongkan jika tidak diganti)'}</label><input class="input" id="gw" ${isNew ? 'required' : ''} minlength="8" autocomplete="new-password">
+        <label class="f" id="gwl"></label><input class="input" id="gw" minlength="8" autocomplete="new-password">
         ${!isNew && owner && !self ? `<label style="display:flex;gap:8px;align-items:center;margin-top:14px;font-weight:600"><input type="checkbox" id="gd" ${u.disabled ? 'checked' : ''}> Nonaktifkan (tidak bisa login)</label>` : ''}
         <div id="gerr"></div>
         <div class="row" style="margin-top:16px"><button type="button" class="btn" id="gno">Batal</button><button class="btn primary" id="gok">Simpan</button></div>
       </form>`);
+    // A pelanggan needs no password (a random one is stored); staff logins do.
+    const pwRule = () => {
+      const opt = !isNew || $('#gr').value === 'pelanggan';
+      $('#gw').required = !opt;
+      $('#gwl').textContent = !isNew ? 'Password baru (kosongkan jika tidak diganti)' : opt ? 'Password (opsional, min. 8)' : 'Password (min. 8)';
+    };
+    $('#gr').onchange = pwRule; pwRule();
     $('#gno').onclick = closeModal;
     $('#gf').onsubmit = async ev => {
       ev.preventDefault();
@@ -3112,6 +3127,7 @@ async function viewUsers() {
       if (isNew && !owner) body.role = 'pelanggan';
       if ($('#gd')) body.disabled = $('#gd').checked;
       if ($('#gw').value) { body.password = $('#gw').value; body.passwordConfirm = $('#gw').value; }
+      else if (isNew) body.password = body.passwordConfirm = randomPassword();
       $('#gok').disabled = true;
       try {
         await api(`/api/collections/users/records${isNew ? '' : '/' + u.id}`, { method: isNew ? 'POST' : 'PATCH', body });

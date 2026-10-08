@@ -30,7 +30,7 @@ routerAdd("POST", "/api/pos/checkout", (e) => {
     let status = "lunas";
     if (pay.short) {
       if (!b.credit) throw new BadRequestError(`Uang kurang Rp ${L.idr(pay.short)}.`);
-      if (!customer) throw new BadRequestError("Bon/DP harus atas nama pelanggan.");
+      if (!customer || customer.id === L.walkinId(tx)) throw new BadRequestError("Bon/DP harus atas nama pelanggan.");
       status = "piutang";
     }
     if (b.due_date && !/^\d{4}-\d{2}-\d{2}$/.test(String(b.due_date))) throw new BadRequestError("Tanggal jatuh tempo tidak valid.");

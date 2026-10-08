@@ -200,9 +200,11 @@ function priceCart(tx, e, b) {
     }
   }
 
+  // No pelanggan picked = the walk-in pelanggan "Toko" (settings.walkin_customer).
   let customer = null;
-  if (b.customer) {
-    try { customer = tx.findRecordById("users", b.customer); } catch (_) { throw new BadRequestError("Pelanggan tidak ditemukan."); }
+  const cid = b.customer || walkinId(tx);
+  if (cid) {
+    try { customer = tx.findRecordById("users", cid); } catch (_) { throw new BadRequestError("Pelanggan tidak ditemukan."); }
     if (customer.getString("role") !== "pelanggan") throw new BadRequestError("Pelanggan tidak valid.");
   }
 
@@ -286,7 +288,7 @@ function pricePreorder(tx, e, b) {
     }
   }
   let customer = null;
-  if (!b.customer) throw new BadRequestError("Pre-order harus atas nama pelanggan.");
+  if (!b.customer || b.customer === walkinId(tx)) throw new BadRequestError("Pre-order harus atas nama pelanggan.");
   try { customer = tx.findRecordById("users", b.customer); } catch (_) { throw new BadRequestError("Pelanggan tidak ditemukan."); }
   if (customer.getString("role") !== "pelanggan") throw new BadRequestError("Pelanggan tidak valid.");
   let discount = 0;
@@ -382,6 +384,11 @@ function legacyDays(tx, d1, d2) {
     { d1, d2 }, { day: "", total: 0, count: 0, items: 0, discount: 0, profit: 0, hpp: 0 });
 }
 
+// The walk-in pelanggan "Toko" ("" when not set up).
+function walkinId(tx) {
+  return query(tx, `SELECT walkin_customer AS id FROM settings LIMIT 1`, {}, { id: "" })[0]?.id || "";
+}
+
 // The old system's period: first and last day in legacy_sales ("" when none).
 function legacySpan(tx) {
   return query(tx, `SELECT COALESCE(MIN(day),'') AS first, COALESCE(MAX(day),'') AS last FROM legacy_sales`, {}, { first: "", last: "" })[0];
@@ -394,4 +401,4 @@ function legacyTotals(tx, kind) {
   return out;
 }
 
-module.exports = { realRole, pricePreorder, nextPoNumber, minDp, isLegacySale, legacySpan, legacyTotals, legacyDays, takePayments, pickEmployee, returnable, findSale, idr, priceCart, splitPrice, KODI, wibDate, wibRange, role, requireRole, int, moveStock, nextSaleNumber, voucherDiscount, settings, query };
+module.exports = { walkinId, realRole, pricePreorder, nextPoNumber, minDp, isLegacySale, legacySpan, legacyTotals, legacyDays, takePayments, pickEmployee, returnable, findSale, idr, priceCart, splitPrice, KODI, wibDate, wibRange, role, requireRole, int, moveStock, nextSaleNumber, voucherDiscount, settings, query };

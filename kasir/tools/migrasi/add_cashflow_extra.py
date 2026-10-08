@@ -78,6 +78,8 @@ def main():
     # 1. old-system sales after the import
     last = cur.execute("SELECT MAX(CAST(substr(number, 4) AS INTEGER)) FROM sales WHERE note LIKE 'Sistem lama%' AND number GLOB 'TRX[0-9]*'").fetchone()[0]
     owner = cur.execute("SELECT cashier, COUNT(*) c FROM sales WHERE note LIKE 'Sistem lama%' GROUP BY 1 ORDER BY c DESC LIMIT 1").fetchone()[0]
+    cols = [r[1] for r in cur.execute("PRAGMA table_info(settings)")]
+    walk = (cur.execute("SELECT walkin_customer FROM settings LIMIT 1").fetchone() or ("",))[0] if "walkin_customer" in cols else ""
     people = defaultdict(list)
     for uid, name in cur.execute("SELECT id, name FROM users WHERE role = 'pelanggan'"):
         people[name].append(uid)
@@ -90,7 +92,7 @@ def main():
         number, who = re.match(r"Penjualan #(TRX\d+) a/n (.*)$", r["text"]).groups()
         if cur.execute("SELECT 1 FROM sales WHERE number = ?", (number,)).fetchone():
             continue
-        cust = "" if who == "Toko" else (people[who][0] if len(people[who]) == 1 else None)
+        cust = walk if who == "Toko" else (people[who][0] if len(people[who]) == 1 else None)
         if cust is None:
             print(f"FAIL {number}: pelanggan not found exactly once"); ok = False; continue
         lines = items_for(r["in"], popular)

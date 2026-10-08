@@ -326,7 +326,10 @@ def main():
             items_by_t[lt[i]].append((lp[i], b - a, p0 + (1 if a < r1 else 0), h0 + (1 if a < r2 else 0)))
     db = sqlite3.connect(db_path, timeout=60)
     q1 = lambda sql, *a: db.execute(sql, a).fetchone()
-    users = dict(db.execute("SELECT username, id FROM users WHERE role='pelanggan'"))
+    # walk-in pelanggan "Toko" (settings.walkin_customer, 2026-10-08); "" before that migration
+    cols = [r[1] for r in db.execute("PRAGMA table_info(settings)")]
+    walk = (db.execute("SELECT walkin_customer FROM settings LIMIT 1").fetchone() or ("",))[0] if "walkin_customer" in cols else ""
+    users = dict(db.execute("SELECT username, id FROM users WHERE role='pelanggan' AND id != ?", (walk,)))
     emps = dict(db.execute("SELECT name, id FROM employees"))
     prods = {nm: i for nm, i in db.execute("SELECT name, id FROM products")}
     methods = dict(db.execute("SELECT name, id FROM payment_methods"))
@@ -368,7 +371,7 @@ def main():
         cur.execute("""INSERT INTO sales (id, number, cashier, customer, subtotal, discount, voucher, points_used, total, paid, change,
             payment_method, status, points_earned, note, created, updated, kind, ref_sale, employee)
             VALUES (?,?,'',?,?,0,'',0,?,?,0,?,'lunas',0,?,?,?,'jual','',?)""",
-            (sid, f"TRX{t + 1:04d}", users.get(tcus[t], ""), total, total, 0 if bon else total, main_m, MARKER, created, created, emps.get(temp[t], "")))
+            (sid, f"TRX{t + 1:04d}", users.get(tcus[t], walk), total, total, 0 if bon else total, main_m, MARKER, created, created, emps.get(temp[t], "")))
         for p, qn, pr, hp in items_by_t[t]:
             cur.execute("""INSERT INTO sale_items (id, sale, product, name, qty, price, hpp, subtotal, created, updated, tier)
                 VALUES (?,?,?,?,?,?,?,?,?,?,'normal')""", (rid(), sid, prods[p], p, qn, pr, hp, qn * pr, created, created))
@@ -380,7 +383,7 @@ def main():
             continue
         rcid = rid()
         cur.execute("""INSERT INTO receivables (id, sale, customer, amount, paid, status, due_date, created, updated)
-            VALUES (?,?,?,?,?,'lunas','',?,?)""", (rcid, sid, users.get(tcus[t], ""), total, total, created, created))
+            VALUES (?,?,?,?,?,'lunas','',?,?)""", (rcid, sid, users.get(tcus[t], walk), total, total, created, created))
         for k, (pday, a, m) in enumerate(pays[code_of[t]]):
             at = stamp(pday, max(when[t] + 60 * (k + 1), 9 * 3600) if pday == tday[t] else 10 * 3600 + 60 * k)
             cur.execute("""INSERT INTO receivable_payments (id, receivable, amount, payment_method, by, note, created, updated)
@@ -396,7 +399,7 @@ def main():
     rows = {r[0]: r[1:] for r in db.execute(f"""SELECT s.number, date(datetime(s.created,'+7 hours')), COALESCE(u.username,''), s.total,
         COALESCE((SELECT SUM(sp.amount) FROM sale_payments sp JOIN payment_methods m ON m.id = sp.payment_method WHERE sp.sale = s.id AND m.name = 'Tunai'),0),
         COALESCE((SELECT SUM(sp.amount) FROM sale_payments sp JOIN payment_methods m ON m.id = sp.payment_method WHERE sp.sale = s.id AND m.name = 'Transfer'),0)
-        FROM sales s LEFT JOIN users u ON u.id = s.customer WHERE {W}""")}
+        FROM sales s LEFT JOIN users u ON u.id = s.customer AND u.id != '{walk}' WHERE {W}""")}
     wrong = []
     for code, x in sales.items():
         r = rows.get(code)
@@ -413,7 +416,7 @@ def main():
     report(f"bons keep number, day, pelanggan, amount ({len(bons)})", not wrong)
     def agg(key):
         return {r[0]: r[1:] for r in db.execute(f"""SELECT {key}, COUNT(DISTINCT s.id), SUM(i.qty), SUM(i.subtotal), SUM(i.subtotal - i.hpp * i.qty)
-            FROM sale_items i JOIN sales s ON s.id = i.sale LEFT JOIN users u ON u.id = s.customer LEFT JOIN employees e ON e.id = s.employee
+            FROM sale_items i JOIN sales s ON s.id = i.sale LEFT JOIN users u ON u.id = s.customer AND u.id != '{walk}' LEFT JOIN employees e ON e.id = s.employee
             LEFT JOIN products p ON p.id = i.product WHERE {W} GROUP BY 1""")}
     def compare(label, got, want, fields):
         diff = sum(1 for k in want if tuple(got.get(k, (0, 0, 0, 0))[j] for j in fields) != tuple(want[k][j] for j in fields))

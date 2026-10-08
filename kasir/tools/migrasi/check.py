@@ -30,7 +30,7 @@ def checks(db, want, storage):
     if "kodian" in want:
         add("kodian prices (count / sum)", one(db, "SELECT SUM(price_kodi > 0), SUM(price_kodi) FROM products WHERE active"),
             (want["kodian"]["with_price"], want["kodian"]["sum"]))
-    add("pelanggan", one(db, "SELECT COUNT(*) FROM users WHERE role='pelanggan'")[0], want["customers"])
+    add("pelanggan", one(db, "SELECT COUNT(*) FROM users WHERE role='pelanggan' AND username != 'cus0130'")[0], want["customers"])
     add("pelanggan disabled", one(db, "SELECT COUNT(*) FROM users WHERE role='pelanggan' AND disabled")[0], 0)
     add("karyawan (active)", one(db, "SELECT COUNT(*), SUM(active) FROM employees"), (want["employees"],) * 2)
     e = want["expenses"]

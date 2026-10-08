@@ -216,14 +216,14 @@ routerAdd("POST", "/api/store/admin/{id}/{action}", (e) => {
       // The paid order becomes a normal sale. Stock already left at order time.
       const items = SL.json(o, "items");
       let customer = null;
-      try { customer = tx.findFirstRecordByFilter("users", "role = 'pelanggan' && phone != ''  && phone ~ {:p}", { p: o.getString("phone").slice(-9) }); } catch (_) {}
+      try { customer = tx.findFirstRecordByFilter("users", "role = 'pelanggan' && phone != '' && id != {:w} && phone ~ {:p}", { w: L.walkinId(tx), p: o.getString("phone").slice(-9) }); } catch (_) {}
       const pmName = o.getString("payment") === "qris" ? "QRIS" : "Transfer";
       let pm = null;
       try { pm = tx.findFirstRecordByFilter("payment_methods", "name = {:n}", { n: pmName }); } catch (_) {}
       const subtotal = o.getInt("subtotal");
       const sale = new Record(tx.findCollectionByNameOrId("sales"));
       sale.load({
-        number: L.nextSaleNumber(tx), cashier: e.auth.id, customer: customer ? customer.id : "",
+        number: L.nextSaleNumber(tx), cashier: e.auth.id, customer: customer ? customer.id : L.walkinId(tx),
         subtotal, discount: 0, total: subtotal, paid: subtotal, change: 0, payment_method: pm ? pm.id : "",
         status: "lunas", points_earned: 0, kind: "jual", note: `Pesanan online ${number}`,
       });

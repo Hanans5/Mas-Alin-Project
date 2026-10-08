@@ -1,5 +1,12 @@
 # Nelin Batik kasir: changelog
 
+## 2026-10-08: Pelanggan "Toko" for walk-in sales; pelanggan password optional
+- New pelanggan **Toko** (username `cus0130`, the old system's CUS0130), named in `settings.walkin_customer`. A sale with no pelanggan is booked on Toko, including online orders from an unregistered phone. The kasir can also pick Toko by hand: it's the top row of "Pilih pelanggan". Its password is random, so nobody logs in with it.
+- Existing sales and bons without a pelanggan moved to Toko. Money totals didn't move. Laporan Pelanggan and Dasbor say "Toko" instead of "Umum (tanpa member)". The struk prints no "Member:" line for Toko.
+- Bon/DP and Pre-Order still need a real pelanggan; the server refuses Toko.
+- Adding a pelanggan (Pengguna → Pelanggan, and "+ Daftar member baru" at the Kasir) no longer asks for a password. If it's left blank, a random one is stored. Staff logins still need a password.
+- Migration `1791210000_walkin_toko`; test `tests/walkin.mjs`. The migration tools (`import.js`, `rebuild_real.py`, `gen_sales.py`, `add_cashflow_extra.py`, `check.py`) book walk-in receipts on Toko too.
+
 ## 2026-10-08: Old-system receipts from the real receipt list
 - `tools/migrasi/rebuild_real.py` rebuilds receipts TRX0001… from the old system's Laporan Kas (cashflow page). Every receipt now has its real amount, day, pelanggan and Tunai/Transfer, and bons keep their own data. The items on each receipt, the karyawan and the time are still fitted, so the totals per day, pelanggan, karyawan and produk match the old reports exactly. Only "Sistem lama" receipts are replaced; kasir sales and pre-orders stay. Totals, Buku Kas and Laba Rugi don't move. Rerunnable; run `add_cashflow_extra.py` again afterwards, never `fix_methods.py`.
 

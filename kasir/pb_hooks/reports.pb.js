@@ -277,7 +277,7 @@ routerAdd("GET", "/api/reports/table", (e) => {
     columns = [C("created", "Tanggal", "date"), C("number", "No. transaksi"), C("karyawan", "Karyawan"), C("pelanggan", "Pelanggan"), C("items", "Item", "num"),
       C("subtotal", "Subtotal", "rp"), C("discount", "Diskon", "rp"), C("total", "Total", "rp"), C("paid", "Dibayar", "rp"), C("metode", "Metode"), C("status", "Status"), ...profit];
     rows = L.query(e.app, `SELECT x.created, x.number, COALESCE(em.name, 'Toko') AS karyawan,
-        COALESCE(NULLIF(c.name,''), c.username, 'Umum') AS pelanggan, x.items, x.subtotal, x.discount, x.total, x.paid,
+        COALESCE(NULLIF(c.name,''), c.username, 'Toko') AS pelanggan, x.items, x.subtotal, x.discount, x.total, x.paid,
         COALESCE((SELECT GROUP_CONCAT(pm.name, ' + ') FROM sale_payments sp JOIN payment_methods pm ON pm.id = sp.payment_method WHERE sp.sale = x.id), m.name,
           CASE WHEN x.status = 'piutang' THEN 'Bon' ELSE '-' END) AS metode,
         CASE WHEN x.kind = 'tukar' THEN 'tukar' WHEN x.status = 'piutang' THEN 'bon' ELSE x.status END AS status, x.total - x.hpp_total AS laba
@@ -302,7 +302,7 @@ routerAdd("GET", "/api/reports/table", (e) => {
       C("items", "Item", "num"), C("diskon", "Diskon", "rp"), ...profit];
     // karyawan = who served (sales.employee); sales with none (the owner, online orders, older sales) show as "Toko" like the old system
     const who = cust
-      ? { name: "COALESCE(NULLIF(u.name,''), u.username, 'Umum (tanpa member)')", phone: "COALESCE(u.phone, '')", join: "LEFT JOIN users u ON u.id = x.customer", by: "x.customer" }
+      ? { name: "COALESCE(NULLIF(u.name,''), u.username, 'Toko')", phone: "COALESCE(u.phone, '')", join: "LEFT JOIN users u ON u.id = x.customer", by: "x.customer" }
       : { name: "COALESCE(em.name, 'Toko')", phone: "COALESCE(em.phone, '')", join: "LEFT JOIN employees em ON em.id = x.employee", by: "COALESCE(NULLIF(x.employee, ''), 'toko')" };
     rows = L.query(e.app, `SELECT ${who.by} AS k, ${who.name} AS nama, ${who.phone} AS kontak,
         SUM(x.total) AS penjualan, COUNT(*) AS transaksi, SUM(x.items) AS items, SUM(x.discount) AS diskon, SUM(x.total - x.hpp_total) AS laba
@@ -362,7 +362,7 @@ routerAdd("GET", "/api/reports/table", (e) => {
           join: "LEFT JOIN products p ON p.id = lt.ref LEFT JOIN categories c ON c.id = p.category" },
         kategori: { k: "COALESCE(p.category, '')", nama: "COALESCE(c.name, 'Tanpa kategori')", sku: "''", kategori: "COALESCE(c.name, '')", kontak: "''",
           join: "LEFT JOIN products p ON p.id = lt.ref LEFT JOIN categories c ON c.id = p.category" },
-        pelanggan: { k: "lt.ref", nama: "COALESCE(NULLIF(u.name,''), u.username, 'Umum (tanpa member)')", sku: "''", kategori: "''", kontak: "COALESCE(u.phone, '')",
+        pelanggan: { k: "lt.ref", nama: "COALESCE(NULLIF(u.name,''), u.username, 'Toko')", sku: "''", kategori: "''", kontak: "COALESCE(u.phone, '')",
           join: "LEFT JOIN users u ON u.id = lt.ref" },
         karyawan: { k: "lt.ref", nama: "COALESCE(em.name, 'Toko')", sku: "''", kategori: "''", kontak: "COALESCE(em.phone, '')",
           join: "LEFT JOIN employees em ON em.id = lt.ref" },

@@ -102,6 +102,20 @@ migrate((app) => {
     app.save(u);
   }
   must("pelanggan", D["#CUSTOMERS"].length, want.customers);
+  // walk-in pelanggan "Toko" = the old CUS0130 (not in the export), when the
+  // 1791210000_walkin_toko migration has run
+  let walk = "";
+  const st = app.findFirstRecordByFilter("settings", "id != ''");
+  if (st.collection().fields.getByName("walkin_customer")) {
+    const u = new Record(col("users"));
+    u.set("username", "cus0130"); u.set("name", "Toko"); u.set("address", st.getString("address")); u.set("phone", st.getString("phone"));
+    u.set("role", "pelanggan"); u.set("points", 0); u.set("disabled", false);
+    u.setPassword($security.randomString(24));
+    app.save(u);
+    walk = u.id;
+    st.set("walkin_customer", walk);
+    app.save(st);
+  }
 
   // 6. karyawan: upsert by name, others removed
   const emps = [];
@@ -185,7 +199,7 @@ migrate((app) => {
   const need = (rec, what) => { if (!rec) throw new Error("not found: " + what); return rec; };
   for (const l of T["#CUSTOMER_TOTALS"]) {
     const r = l.split("|");
-    if (r[0] === "TOKO") add("pelanggan", "", "Umum (tanpa member)", r);
+    if (r[0] === "TOKO") add("pelanggan", walk, walk ? "Toko" : "Umum (tanpa member)", r);
     else add("pelanggan", need(one("users", "username", r[0].toLowerCase()), r[0]).id, r[0], r);
   }
   for (const l of T["#EMPLOYEE_TOTALS"]) {
