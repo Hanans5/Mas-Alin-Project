@@ -179,6 +179,8 @@ main{padding:16px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
 .tx{display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:12px 14px;border-bottom:1px solid var(--line);width:100%;text-align:left;background:none;border-left:0;border-right:0;border-top:0}
 .tx:last-child{border-bottom:0}
+.txw{display:flex;border-bottom:1px solid var(--line)}.txw:last-child{border-bottom:0}.txw .tx{flex:1;border-bottom:0}
+.txdel{background:none;border:0;border-left:1px solid var(--line);color:var(--bad);padding:0 16px;cursor:pointer}.txdel:hover{background:var(--bad-soft)}.txdel svg{width:20px;height:20px;display:block}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
 .stat{padding:14px}
 .stat small{color:var(--muted);font-weight:600}
@@ -1693,7 +1695,9 @@ async function showReceipt(sale, items, fresh, pays) {
     ${legacy ? `<div class="muted sm" style="margin-top:8px">Transaksi sistem lama: total per hari, pelanggan, karyawan dan produk sesuai laporan lama; rincian barang per nota disimulasikan. Tidak bisa dibatalkan atau ditukar.</div>` : ''}
     ${role() !== 'pelanggan' && sale.status !== 'batal' && sale.kind !== 'tukar' && !fresh && !legacy ? `<button class="btn block" id="rswap" style="margin-top:8px">Tukar barang</button>` : ''}
     ${isManager() && sale.status !== 'batal' && !fresh && !legacy ? `<button class="btn danger block" id="rvoid" style="margin-top:8px">Batalkan transaksi</button>` : ''}
+    ${!fresh && canDeleteSale(sale) ? `<button class="btn danger block" id="rdel" style="margin-top:8px">${TRASH_SVG.replace('<svg', '<svg style="width:18px;height:18px;vertical-align:-3px;margin-right:6px"')}Hapus permanen</button>` : ''}
     <button class="btn primary block" id="rdone" style="margin-top:8px">${fresh ? 'Transaksi baru' : 'Tutup'}</button>`);
+  if ($('#rdel')) $('#rdel').onclick = () => openDeleteSale(sale, () => S.reloadTx?.());
   $('#rprint').onclick = () => printReceipt(sale, items, pays);
   // Auto-print right after a sale (Pengaturan → Tampilan → Printer struk).
   if (fresh && POSP.autoPrint) setTimeout(() => printReceipt(sale, items, pays), 150);
@@ -1741,20 +1745,21 @@ async function viewTx() {
         <div class="card stat"><small>Diterima</small><b class="num">${rp(sum.paid)}</b></div>
       </div>${old ? `<div class="card legacy-day"><b>Sistem lama: ${old.count.toLocaleString('id-ID')} transaksi, ${rp(old.total)}</b>
         <div class="muted sm">${old.items.toLocaleString('id-ID')} pcs. Hari ini tercatat di sistem lama, hanya total hariannya yang dipindahkan (tanpa rincian per transaksi).</div></div>` : ''}`;
-      const row = s => `
+      const row = s => (canDeleteSale(s) ? `<div class="txw">` : '') + `
         <button class="tx" data-s="${s.id}">
           <span><b class="num">${esc(s.number)}</b> <span class="badge ${s.status === 'lunas' ? 'ok' : s.status === 'batal' ? 'bad' : 'warn'}">${s.status}</span>${isLegacy(s) ? ' <span class="badge">sistem lama</span>' : ''}${s.kind === 'tukar' ? ` <span class="badge">tukar${s.expand?.ref_sale ? ' · ' + esc(s.expand.ref_sale.number) : ''}</span>` : ''}</span>
           <b class="num">${rp(s.total)}</b>
           <small class="muted">${fmtTime(s.created)} · ${esc(s.expand?.customer?.name || 'Toko')}${s.expand?.employee ? ' · ' + esc(s.expand.employee.name) : ' · ' + esc(cashierLabel(s.expand?.cashier))}</small>
           <small class="muted">${esc(s.expand?.payment_method?.name || '')}</small>
-        </button>`;
-      const wire = () => $('#tlist').querySelectorAll('[data-s]').forEach(b => b.onclick = async () => {
+        </button>` + (canDeleteSale(s) ? `<button class="txdel" data-del="${s.id}" title="Hapus permanen" aria-label="Hapus permanen ${esc(s.number)}">${TRASH_SVG}</button></div>` : '');
+      const wire = () => { $('#tlist').querySelectorAll('[data-del]').forEach(b => b.onclick = () => openDeleteSale(items.find(s => s.id === b.dataset.del), () => S.reloadTx?.()));
+        $('#tlist').querySelectorAll('[data-s]').forEach(b => b.onclick = async () => {
         const sale = items.find(s => s.id === b.dataset.s);
         try {
           const it = await list('sale_items', { filter: `sale = ${pbq(sale.id)}`, sort: 'created' });
           showReceipt(sale, it.items, false);
         } catch (e) { toast(e.message, true); }
-      });
+      }); };
       const more = total => {
         $('#tmore').innerHTML = items.length < total ? `<button class="btn block" style="margin-top:10px">Tampilkan 100 berikutnya · ${items.length.toLocaleString('id-ID')} dari ${total.toLocaleString('id-ID')}</button>` : '';
         const btn = $('#tmore button');
@@ -1778,6 +1783,36 @@ async function viewTx() {
   $('#tbon').onclick = () => openBonSearch({ after: () => S.reloadTx?.() });
   S.reloadTx = load;
   load();
+}
+
+const TRASH_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>';
+// Only a voided sale can be deleted, by the owner/superadmin (not old-system or pre-order sales).
+const canDeleteSale = s => isOwner() && s.status === 'batal' && !isLegacy(s) && !s.preorder;
+// Two steps: "are you sure", then type the receipt number.
+function openDeleteSale(sale, after) {
+  openModal(`
+    <h2>Hapus permanen ${esc(sale.number)}?</h2>
+    <div class="muted">Transaksi ini sudah dibatalkan. Menghapusnya membuang nota, rincian barang dan pembayarannya dari daftar Transaksi. Stok, Buku Kas dan laporan tidak berubah. <b>Tidak bisa dikembalikan.</b></div>
+    <div class="row" style="margin-top:16px"><button class="btn" id="dno">Jangan</button><button class="btn danger" id="dyes">Ya, lanjutkan</button></div>`);
+  $('#dno').onclick = closeModal;
+  $('#dyes').onclick = () => {
+    openModal(`
+      <h2>Konfirmasi terakhir</h2>
+      <div class="muted">Ketik nomor transaksi <b class="num">${esc(sale.number)}</b> untuk menghapusnya selamanya.</div>
+      <input class="input" id="dnum" autocomplete="off" autocapitalize="characters" style="margin-top:10px" aria-label="Nomor transaksi">
+      <div id="derr"></div>
+      <div class="row" style="margin-top:16px"><button class="btn" id="dno2">Jangan</button><button class="btn danger" id="dgo" disabled>Hapus permanen</button></div>`);
+    $('#dno2').onclick = closeModal;
+    $('#dnum').oninput = () => { $('#dgo').disabled = $('#dnum').value.trim().toUpperCase() !== sale.number.toUpperCase(); };
+    $('#dgo').onclick = async () => {
+      $('#dgo').disabled = true;
+      try {
+        await api(`/api/pos/delete/${sale.id}`, { method: 'POST', body: { confirm: sale.number } });
+        closeModal(); toast(`${sale.number} dihapus.`); after?.();
+      } catch (e) { $('#derr').innerHTML = `<div class="err">${esc(e.message)}</div>`; $('#dgo').disabled = false; }
+    };
+    $('#dnum').focus();
+  };
 }
 
 function openVoid(sale) {

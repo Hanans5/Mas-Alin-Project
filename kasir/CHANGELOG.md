@@ -1,5 +1,9 @@
 # Nelin Batik kasir: changelog
 
+## 2026-10-08: Delete a voided transaction
+- Owner and superadmin get a trash icon on BATAL rows in Transaksi (and "Hapus permanen" in a BATAL receipt). It asks twice: "Hapus permanen …?", then the receipt number must be typed before the button unlocks.
+- `POST /api/pos/delete/{id}` with `{ confirm: number }` removes the sale, its items, payments and bon rows. A void already took the sale out of stock, Buku Kas and the reports, so nothing moves. Its stock moves stay as the audit trail, and the PocketBase log records who deleted which number. Refused for a sale that isn't voided, old-system and pre-order sales, online-order sales, and a sale another (swap) sale points to. Test `tests/delete-void.mjs`.
+
 ## 2026-10-08: Pelanggan "Toko" for walk-in sales; pelanggan password optional
 - New pelanggan **Toko** (username `cus0130`, the old system's CUS0130), named in `settings.walkin_customer`. A sale with no pelanggan is booked on Toko, including online orders from an unregistered phone. The kasir can also pick Toko by hand: it's the top row of "Pilih pelanggan". Its password is random, so nobody logs in with it.
 - Existing sales and bons without a pelanggan moved to Toko. Money totals didn't move. Laporan Pelanggan and Dasbor say "Toko" instead of "Umum (tanpa member)". The struk prints no "Member:" line for Toko.

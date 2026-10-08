@@ -140,6 +140,38 @@ routerAdd("POST", "/api/pos/void/{id}", (e) => {
   return e.json(200, { ok: true });
 }, $apis.requireAuth("users"));
 
+// POST /api/pos/delete/{id} — remove a voided sale for good: the sale, its
+// items, payments and bon rows. Owner/superadmin only, body { confirm: number }
+// (the UI asks twice). A void already took it out of stock, Buku Kas and the
+// reports, so nothing moves; its stock moves stay as the audit trail, and
+// the PocketBase log records who deleted what.
+routerAdd("POST", "/api/pos/delete/{id}", (e) => {
+  const L = require(`${__hooks}/lib.js`);
+  L.requireRole(e, ["owner"]);
+  const confirm = String((e.requestInfo().body || {}).confirm || "").trim();
+  let number = "", total = 0;
+  e.app.runInTransaction((tx) => {
+    let sale;
+    try { sale = tx.findRecordById("sales", e.request.pathValue("id")); } catch (_) { throw new NotFoundError("Transaksi tidak ditemukan."); }
+    number = sale.getString("number"); total = sale.getInt("total");
+    if (sale.getString("status") !== "batal") throw new BadRequestError("Hanya transaksi yang sudah dibatalkan yang bisa dihapus.");
+    if (confirm !== number) throw new BadRequestError("Ketik nomor transaksi untuk konfirmasi.");
+    if (L.isLegacySale(sale) || sale.getString("preorder")) throw new BadRequestError("Transaksi ini tidak bisa dihapus.");
+    const refs = tx.findRecordsByFilter("sales", "ref_sale = {:s}", "", 0, 0, { s: sale.id });
+    if (refs.length) throw new BadRequestError(`Hapus dulu transaksi tukar ${refs.map((x) => x.getString("number")).join(", ")}.`);
+    if (tx.findRecordsByFilter("web_orders", "sale = {:s}", "", 1, 0, { s: sale.id }).length) throw new BadRequestError("Transaksi dari pesanan online tidak bisa dihapus.");
+    if (tx.findRecordsByFilter("preorders", "sale = {:s}", "", 1, 0, { s: sale.id }).length) throw new BadRequestError("Transaksi ini tidak bisa dihapus.");
+    for (const rc of tx.findRecordsByFilter("receivables", "sale = {:s}", "", 0, 0, { s: sale.id })) {
+      for (const rp of tx.findRecordsByFilter("receivable_payments", "receivable = {:r}", "", 0, 0, { r: rc.id })) tx.delete(rp);
+      tx.delete(rc);
+    }
+    for (const c of ["sale_payments", "sale_items"]) for (const r of tx.findRecordsByFilter(c, "sale = {:s}", "", 0, 0, { s: sale.id })) tx.delete(r);
+    tx.delete(sale);
+  });
+  e.app.logger().info("Transaksi batal dihapus", "number", number, "total", total, "by", e.auth.id, "by_name", e.auth.getString("name") || e.auth.getString("username"));
+  return e.json(200, { ok: true, number });
+}, $apis.requireAuth("users"));
+
 // ── tukar barang (item swap) ────────────────────────
 // Returned goods go back on the shelf, new goods leave it, and the buyer
 // pays any difference. Swaps only: the new goods must be worth at least as
