@@ -434,8 +434,11 @@ const isManager = () => role() === 'owner' || role() === 'admin';
 const isOwner = () => role() === 'owner';
 // The cart's "Harga" button: kasir and admin get Per pcs + Kodian, the owner everything.
 const canPrice = () => isManager() || role() === 'kasir';
-// Till preferences, per device: ask quantity on tap, show product photos.
-const POSP = (() => { try { return Object.assign({ askQty: false, images: false }, JSON.parse(localStorage.getItem('nb_posp') || '{}')); } catch (_) { return { askQty: false, images: false }; } })();
+// Till preferences, per device: ask quantity on tap, show product photos, how
+// the struk prints (browser print window or RawBT for a Bluetooth printer) and
+// whether it prints by itself after a sale.
+const POSP_DEFAULT = { askQty: false, images: false, printMode: 'browser', autoPrint: false };
+const POSP = (() => { try { return Object.assign({}, POSP_DEFAULT, JSON.parse(localStorage.getItem('nb_posp') || '{}')); } catch (_) { return Object.assign({}, POSP_DEFAULT); } })();
 const savePOSP = () => { try { localStorage.setItem('nb_posp', JSON.stringify(POSP)); } catch (_) {} };
 const pbDate = s => new Date(String(s).replace(' ', 'T'));
 const fmtTime = s => pbDate(s).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -744,6 +747,7 @@ async function viewPOS() {
       <div class="pos-tools">
         <button class="tool ${POSP.images ? 'on' : ''}" id="tImg" aria-pressed="${POSP.images}">Gambar</button>
         <button class="tool" id="tFull">Layar penuh</button>
+        <button class="tool" id="tPrinter">🖨 Printer</button>
       </div>
       <div class="chips" id="chips"></div>
       <div class="grid" id="grid"></div>
@@ -758,6 +762,12 @@ async function viewPOS() {
   const full = () => { $('#tFull').textContent = document.fullscreenElement ? 'Keluar layar penuh' : 'Layar penuh'; };
   $('#tFull').onclick = () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.())?.catch?.(() => toast('Layar penuh tidak didukung di perangkat ini.', true));
   document.onfullscreenchange = full; full();
+  $('#tPrinter').onclick = () => {
+    openModal(`<h2>Printer struk</h2><div id="prcard"></div><button class="btn primary block" id="prclose" style="margin-top:14px">Selesai</button>`);
+    printerCard($('#prcard'));
+    $('#prcard > label.f')?.remove(); // the dialog title already says it
+    $('#prclose').onclick = closeModal;
+  };
   // A barcode scanner types the code and presses Enter: exact SKU/barcode
   // match goes straight into the cart; otherwise a single search hit does.
   q.onkeydown = ev => {
@@ -1474,6 +1484,182 @@ function receiptText(sale, items, pays) {
     sale.total > sale.paid ? (sale.status === 'piutang' ? `*Sisa bon: ${rp(sale.total - sale.paid)}*` : `Bon ${rp(sale.total - sale.paid)} sudah lunas`) : '',
     '', 'Terima kasih!'].filter((l, i, a) => l !== '' || a[i - 1] !== '').join('\n');
 }
+// ── struk printing ──
+// Three ways, picked per device (🖨 Printer on the Kasir screen):
+//   browser: the print window with the 58 mm layout above (PC/laptop with the
+//            printer's driver; Chrome started with --kiosk-printing skips the window)
+//   serial:  ESC/POS bytes straight to a COM port through Web Serial (Chrome /
+//            Edge on a PC; Bluetooth printers such as the Rongta RPP02N)
+//   rawbt:   ESC/POS bytes handed to the RawBT app on Android
+// escposReceipt mirrors receiptHtml line for line; change both together.
+const ESC_COLS = 32;   // characters per line on a 58 mm roll (font A)
+const ESC_DOTS = 384;  // printable dots per line
+const asciiOnly = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+  .replace(/[×]/g, 'x').replace(/[·•]/g, '-').replace(/[–—]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
+  .replace(/[^\x20-\x7e\n]/g, '');
+// The logo as a 1-bit raster (GS v 0), cached per logo. Transparent = white.
+let escLogo = { src: '', bytes: null };
+async function escposLogo() {
+  if (!S.logoData) return null;
+  if (escLogo.src === S.logoData) return escLogo.bytes;
+  const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = S.logoData; });
+  const w = Math.min(256, ESC_DOTS), h = Math.max(1, Math.round(img.height * w / img.width));
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h); cx.drawImage(img, 0, 0, w, h);
+  const px = cx.getImageData(0, 0, w, h).data, wb = w / 8;
+  const out = [0x1d, 0x76, 0x30, 0x00, wb & 255, wb >> 8, h & 255, h >> 8];
+  for (let y = 0; y < h; y++) for (let xb = 0; xb < wb; xb++) {
+    let b = 0;
+    for (let bit = 0; bit < 8; bit++) {
+      const i = (y * w + xb * 8 + bit) * 4;
+      if (px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114 < 150) b |= 0x80 >> bit;
+    }
+    out.push(b);
+  }
+  escLogo = { src: S.logoData, bytes: out };
+  return out;
+}
+async function escposReceipt(sale, items, pays) {
+  const st = S.settings, x = sale.expand || {}, n = v => v.toLocaleString('id-ID');
+  const b = [0x1b, 0x40]; // reset
+  const raw = (...v) => b.push(...v);
+  const text = s => { for (const ch of asciiOnly(s)) b.push(ch.charCodeAt(0)); };
+  const line = (s = '') => { text(s); raw(0x0a); };
+  const align = a => raw(0x1b, 0x61, a); // 0 left, 1 centre
+  const bold = on => raw(0x1b, 0x45, on ? 1 : 0);
+  // Word wrap to 32 columns; a word longer than a line is cut.
+  const wrap = (s, cols = ESC_COLS) => {
+    const o = [];
+    for (const part of asciiOnly(s).split('\n')) {
+      let r = part.trimEnd();
+      while (r.length > cols) {
+        let cut = r.lastIndexOf(' ', cols);
+        if (cut < cols / 2) cut = cols;
+        o.push(r.slice(0, cut).trimEnd()); r = r.slice(cut).trimStart();
+      }
+      o.push(r);
+    }
+    return o;
+  };
+  const lr = (l, r) => { l = asciiOnly(l); r = asciiOnly(r); const room = ESC_COLS - r.length - 1; return (l.length > room ? l.slice(0, room) : l).padEnd(ESC_COLS - r.length) + r; };
+  const sep = () => line('-'.repeat(ESC_COLS));
+  const size = v => raw(0x1d, 0x21, v); // 0x00 normal, 0x01 double height, 0x11 double width + height
+  align(1);
+  try { const logo = await escposLogo(); if (logo) { raw(...logo); raw(0x0a); } } catch (_) {}
+  bold(1); size(0x11); wrap(String(st.store_name || '').toUpperCase(), ESC_COLS / 2).forEach(l => line(l)); size(0); bold(0);
+  const head = st.receipt_header || st.address || '';
+  if (head) wrap(head).forEach(l => line(l));
+  align(0); sep();
+  line(sale.number);
+  wrap(`${fmtTime(sale.created)} - ${x.cashier?.name || x.cashier?.username || ''}`).forEach(l => line(l));
+  if (x.employee) wrap('Staf: ' + x.employee.name).forEach(l => line(l));
+  if (x.customer) wrap('Member: ' + (x.customer.name || x.customer.username)).forEach(l => line(l));
+  sep();
+  if (sale.kind === 'tukar') { bold(1); line('TUKAR BARANG'); bold(0); if (x.ref_sale) line('dari ' + x.ref_sale.number); sep(); }
+  for (const i of items) {
+    wrap(i.name + (TIER_NOTE[i.tier] ? ` (${TIER_NOTE[i.tier]})` : '')).forEach(l => line(l));
+    line(lr(`  ${i.qty} x ${n(i.price)}`, n(i.subtotal)));
+  }
+  sep();
+  line(lr('Subtotal', n(sale.subtotal)));
+  if (sale.discount) line(lr('Diskon', '-' + n(sale.discount)));
+  bold(1); size(0x01); line(lr('TOTAL', n(sale.total))); size(0); bold(0);
+  if (x.preorder) line(lr('DP pre-order ' + x.preorder.number, n(x.preorder.dp)));
+  for (const l of payLines(sale, pays)) line(lr(l[0], n(l[1])));
+  if (sale.change) line(lr('Kembali', n(sale.change)));
+  if (sale.total > sale.paid) { bold(1); line(lr(sale.status === 'piutang' ? 'SISA BON' : 'BON (sudah lunas)', n(sale.total - sale.paid))); bold(0); }
+  if (sale.status === 'batal') { align(1); bold(1); line('*** DIBATALKAN ***'); bold(0); align(0); }
+  sep();
+  if (st.receipt_footer) { align(1); wrap(st.receipt_footer).forEach(l => line(l)); align(0); }
+  raw(0x1b, 0x64, 4); // feed 4 lines so the struk clears the tear bar
+  return new Uint8Array(b);
+}
+// Hands the bytes to RawBT (Android). The intent form opens the Play Store
+// page when RawBT isn't installed yet.
+function sendRawBT(bytes) {
+  let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  const b64 = btoa(s);
+  location.href = /Android/i.test(navigator.userAgent)
+    ? `intent:base64,${b64}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;`
+    : `rawbt:base64,${b64}`;
+}
+// Web Serial (Chrome / Edge on a PC): ESC/POS straight to the printer's COM
+// port, e.g. a Rongta RPP02N paired over Bluetooth ("Standard Serial over
+// Bluetooth link"). The first connect needs a click (Sambungkan printer);
+// after that Chrome remembers the port, so auto-print works without asking.
+const hasSerial = () => 'serial' in navigator;
+let serialPort = null;
+async function serialConnect() {
+  const port = await navigator.serial.requestPort();
+  for (const p of await navigator.serial.getPorts()) if (p !== port) { try { await p.forget(); } catch (_) {} }
+  if (serialPort && serialPort !== port) { try { await serialPort.close(); } catch (_) {} }
+  serialPort = port;
+  return port;
+}
+async function sendSerial(bytes) {
+  if (!hasSerial()) throw new Error('Browser ini tidak mendukung printer serial. Pakai Chrome atau Edge di PC.');
+  if (!serialPort) serialPort = (await navigator.serial.getPorts())[0] || null;
+  if (!serialPort) throw new Error('Printer belum disambungkan. Buka 🖨 Printer → Sambungkan printer.');
+  if (!serialPort.writable) {
+    try { await serialPort.open({ baudRate: 9600 }); }
+    catch (e) { throw new Error('Port printer tidak bisa dibuka (dipakai aplikasi lain, atau printer mati?). ' + e.message); }
+  }
+  const w = serialPort.writable.getWriter();
+  try { await w.write(bytes); } finally { w.releaseLock(); }
+}
+async function printReceipt(sale, items, pays) {
+  if (POSP.printMode === 'serial') {
+    try { await sendSerial(await escposReceipt(sale, items, pays)); }
+    catch (e) { toast('Gagal mencetak: ' + e.message, true); }
+    return;
+  }
+  if (POSP.printMode === 'rawbt') {
+    try { sendRawBT(await escposReceipt(sale, items, pays)); }
+    catch (e) { toast('Gagal menyiapkan struk untuk printer Bluetooth: ' + e.message, true); }
+    return;
+  }
+  $('#print').innerHTML = receiptHtml(sale, items, pays);
+  printAs('receipt');
+}
+// The per-device printer settings, in Pengaturan → Tampilan and behind the
+// Kasir screen's "Printer" button (the kasir login has no Pengaturan).
+function printerCard(el) {
+  el.innerHTML = `
+    <label class="f" style="margin-top:0">Printer struk</label>
+    <div class="choice-list">
+      <label class="pick"><input type="radio" name="prmode" value="browser" ${!['rawbt', 'serial'].includes(POSP.printMode) ? 'checked' : ''}><span><b>Jendela cetak</b><small>PC / laptop dengan printer yang terpasang drivernya (mis. Blueprint BP-ECO58D lewat USB). Kertas 58 mm.</small></span></label>
+      ${hasSerial() || POSP.printMode === 'serial' ? `<label class="pick"><input type="radio" name="prmode" value="serial" ${POSP.printMode === 'serial' ? 'checked' : ''}><span><b>Printer langsung (port COM)</b><small>PC dengan Chrome / Edge, printer Bluetooth atau USB yang muncul sebagai port COM (mis. Rongta RPP02N). Tanpa driver, tanpa jendela cetak.</small></span></label>` : ''}
+      <label class="pick"><input type="radio" name="prmode" value="rawbt" ${POSP.printMode === 'rawbt' ? 'checked' : ''}><span><b>Printer Bluetooth (RawBT)</b><small>HP / tablet Android. Pasang aplikasi RawBT, sambungkan printer di RawBT, lalu pilih ini.</small></span></label>
+    </div>
+    <div class="row" style="margin-top:12px" id="prser"><button type="button" class="btn" id="prconn">🔌 Sambungkan printer</button><span class="muted sm" id="prstat" style="align-self:center"></span></div>
+    <label style="display:flex;gap:10px;align-items:center;margin-top:14px;font-weight:600"><input type="checkbox" id="prauto" ${POSP.autoPrint ? 'checked' : ''}> Cetak struk otomatis setelah bayar</label>
+    <div class="row" style="margin-top:12px"><button type="button" class="btn" id="prtest">🖨 Cetak uji</button></div>
+    <p class="muted sm" style="margin:12px 0 0" id="prhelp"></p>`;
+  const stat = async () => {
+    $('#prser', el).style.display = POSP.printMode === 'serial' ? '' : 'none';
+    if (POSP.printMode !== 'serial') return;
+    if (!hasSerial()) { $('#prstat', el).textContent = 'Browser ini tidak mendukung. Pakai Chrome atau Edge di PC.'; return; }
+    const n = serialPort ? 1 : (await navigator.serial.getPorts()).length;
+    $('#prstat', el).textContent = n ? 'Printer sudah tersambung.' : 'Belum ada printer.';
+  };
+  $('#prconn', el).onclick = async () => {
+    try { await serialConnect(); toast('Printer tersambung. Coba Cetak uji.'); }
+    catch (e) { if (e.name !== 'NotFoundError') toast('Gagal menyambungkan: ' + e.message, true); }
+    stat();
+  };
+  const help = () => { stat(); $('#prhelp', el).innerHTML = POSP.printMode === 'serial'
+    ? 'Pasangkan printer di Bluetooth Windows dulu. Klik <b>Sambungkan printer</b> lalu pilih port printer: untuk Bluetooth pilih <b>Standard Serial over Bluetooth link</b> (port COM keluar / outgoing, mis. COM4). Tutup aplikasi lain yang memakai port itu. Tersimpan di perangkat ini saja.'
+    : POSP.printMode === 'rawbt'
+    ?'Pasang <b>RawBT</b> dari Play Store. Pasangkan printer di Bluetooth Android, lalu di RawBT pilih printer itu dan lebar kertas 58 mm. Struk langsung tercetak tanpa jendela cetak. Tersimpan di perangkat ini saja.'
+    : 'Di jendela cetak pilih printer struk dan kertas 58 mm. Supaya langsung tercetak tanpa jendela cetak: jadikan printer struk printer bawaan, lalu tambahkan <b>--kiosk-printing</b> di shortcut Chrome yang dipakai untuk kasir. Tersimpan di perangkat ini saja.'; };
+  help();
+  el.querySelectorAll('input[name=prmode]').forEach(r => r.onchange = () => { POSP.printMode = r.value; savePOSP(); help(); toast(r.value === 'serial' ? 'Struk dicetak langsung ke printer (port COM).' : r.value === 'rawbt' ? 'Struk dicetak lewat RawBT (Bluetooth).' : 'Struk dicetak lewat jendela cetak.'); });
+  $('#prauto', el).onchange = () => { POSP.autoPrint = $('#prauto', el).checked; savePOSP(); toast(POSP.autoPrint ? 'Struk tercetak otomatis setelah bayar.' : 'Struk dicetak dengan tombol Cetak.'); };
+  $('#prtest', el).onclick = () => printReceipt(
+    { number: 'CETAK UJI', created: new Date().toISOString(), subtotal: 100000, discount: 0, total: 100000, paid: 100000, change: 0, status: 'lunas', expand: { cashier: S.user } },
+    [{ name: 'Contoh barang', qty: 2, price: 50000, subtotal: 100000, tier: 'normal' }],
+    [{ amount: 100000, expand: { payment_method: { name: 'Tunai', is_cash: true } } }]);
+}
 function waNumber(phone) {
   let d = String(phone || '').replace(/\D/g, '');
   if (d.startsWith('0')) d = '62' + d.slice(1);
@@ -1497,7 +1683,9 @@ async function showReceipt(sale, items, fresh, pays) {
     ${role() !== 'pelanggan' && sale.status !== 'batal' && sale.kind !== 'tukar' && !fresh && !legacy ? `<button class="btn block" id="rswap" style="margin-top:8px">Tukar barang</button>` : ''}
     ${isManager() && sale.status !== 'batal' && !fresh && !legacy ? `<button class="btn danger block" id="rvoid" style="margin-top:8px">Batalkan transaksi</button>` : ''}
     <button class="btn primary block" id="rdone" style="margin-top:8px">${fresh ? 'Transaksi baru' : 'Tutup'}</button>`);
-  $('#rprint').onclick = () => { $('#print').innerHTML = receiptHtml(sale, items, pays); printAs('receipt'); };
+  $('#rprint').onclick = () => printReceipt(sale, items, pays);
+  // Auto-print right after a sale (Pengaturan → Tampilan → Printer struk).
+  if (fresh && POSP.autoPrint) setTimeout(() => printReceipt(sale, items, pays), 150);
   $('#rdone').onclick = () => { closeModal(); if (fresh) $('#q')?.focus(); };
   if ($('#rvoid')) $('#rvoid').onclick = () => openVoid(sale);
   if ($('#rswap')) $('#rswap').onclick = () => openSwap(sale.id).catch(e => toast(e.message, true));
@@ -3133,7 +3321,9 @@ function setTheme(el) {
       <label class="theme-opt"><input type="radio" name="navmode" value="${k}" ${navPref() === k ? 'checked' : ''}>
         <span class="nav-prev np-${k}" aria-hidden="true">${k === 'side' ? '<i class="hl"></i><i></i><i></i>' : k === 'top' ? '<i class="hl"></i><i></i>' : '<i class="hl"></i><i></i>'}</span>
         <b>${l}</b><small class="muted">${d}</small></label>`).join('')}</div>
-    <p class="muted sm" style="margin:12px 0 0">Urutan menu samping mengikuti sistem lama Nelin Batik. Tersimpan di perangkat ini saja.</p></div>`;
+    <p class="muted sm" style="margin:12px 0 0">Urutan menu samping mengikuti sistem lama Nelin Batik. Tersimpan di perangkat ini saja.</p></div>
+  <div class="card formcard" style="margin-top:12px" id="prcard"></div>`;
+  printerCard($('#prcard'));
   if (owner) $('#wmon').onchange = async () => {
     const on = $('#wmon').checked;
     try {

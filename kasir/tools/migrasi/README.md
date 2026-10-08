@@ -46,3 +46,23 @@ entries. Run it only on a new, empty install, never on a kasir that is already i
 
 PocketBase records the migration as done; to run it again, delete its row from
 `_migrations` first, as `simulate.sh` does.
+
+## Tunai / Transfer and later old-system sales (live-safe, 2026-10-08)
+
+The data export had daily totals only, so `gen_sales.py` pays every old receipt
+in Tunai. The old system's cashflow page (Laporan Kas → custom period, saved as
+HTML: `backups/migrasi-data/cashflow-20250901-20261008.html`, private) has the
+real method per sale. Two scripts work on an existing database IN PLACE (no
+wipe), so they are safe on the live kasir after a backup:
+
+```bash
+python3 tools/migrasi/fix_methods.py pb_data/data.db backups/migrasi-data/cashflow-….html [--dry-run]
+python3 tools/migrasi/add_cashflow_extra.py pb_data/data.db backups/migrasi-data/cashflow-….html [--dry-run]
+```
+
+- `fix_methods.py`: per day, sets "Sistem lama" receipts to Transfer so each
+  day's Tunai and Transfer equal the cashflow (amounts never change).
+- `add_cashflow_extra.py`: adds old-system sales numbered after the last
+  "Sistem lama" receipt, old returns (manual Buku Kas entry) and moves bon
+  payments to their cashflow day.
+- Both are rerunnable. After a fresh `gen_sales.py` run, run them again.

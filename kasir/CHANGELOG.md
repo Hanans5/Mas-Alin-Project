@@ -1,5 +1,19 @@
 # Nelin Batik kasir: changelog
 
+## 2026-10-08: Tunai / Transfer for the old-system history
+- From the old system's cashflow page (Laporan Kas, saved privately in `backups/migrasi-data/`): every day up to 7 Okt now has the old system's exact Tunai and Transfer in Buku Kas. The import had booked all old sales as Tunai. Only the payment method of "Sistem lama" receipts changed (`tools/migrasi/fix_methods.py`); amounts, items and totals did not. Two receipts are split over both methods (they show under Split).
+- The sales made in the old system after the import (8 Okt) were added as "Sistem lama" receipts with their real number, amount, method and pelanggan; the old return is a manual Buku Kas entry; one old bon payment moved to its cashflow day (`tools/migrasi/add_cashflow_extra.py`).
+- Still different from the old cashflow, on purpose (Hanan, 2026-10-08): two bon payments made with the old "U" method count as Tunai in the kasir.
+
+## 2026-10-08: Printer langsung (port COM)
+- New print mode in **🖨 Printer**: **Printer langsung (port COM)** sends the ESC/POS struk straight to a COM port through Web Serial (Chrome / Edge on a PC), e.g. a Rongta RPP02N over Bluetooth ("Standard Serial over Bluetooth link", the outgoing port). No driver, no print window. **🔌 Sambungkan printer** grants the port once; Chrome remembers it, so auto-print works.
+- ESC/POS struk (port COM and RawBT): the shop name prints double size and bold, TOTAL bold and double height.
+
+## 2026-10-08: Printer struk (USB and Bluetooth)
+- **🖨 Printer** button on the Kasir screen (also Pengaturan → Tampilan), saved per device: **Jendela cetak** (PC/laptop, USB printer such as the Blueprint BP-ECO58D, 58 mm) or **Printer Bluetooth (RawBT)** (Android: the struk is sent as ESC/POS through the RawBT app, 32 columns, logo as a 1-bit image, no print window).
+- **Cetak struk otomatis setelah bayar** prints right after a sale (checkout, Pre-Order pickup, Tukar); an old struk never prints by itself. **Cetak uji** prints a sample struk.
+- PC without the print window: make the struk printer the default printer and start Chrome with `--kiosk-printing`.
+
 ## 2026-10-08: Tukar barang for the same product
 - Swapping a product for the same product (e.g. another size of a model) no longer leaves the stock 1 low: the returned pcs go back on the shelf first, then the new items are checked and taken off. The last pcs on the shelf can now be swapped for itself (the Tukar window counts the returned pcs as available). Test: `tests/swap-same-product.mjs`.
 
