@@ -179,6 +179,9 @@ main{padding:16px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
 .tx{display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:12px 14px;border-bottom:1px solid var(--line);width:100%;text-align:left;background:none;border-left:0;border-right:0;border-top:0}
 .tx:last-child{border-bottom:0}
+.tx{cursor:pointer;user-select:text;-webkit-user-select:text}.tx:focus-visible{outline:2px solid var(--brand,currentColor);outline-offset:-2px}
+.receipt{user-select:text;-webkit-user-select:text}
+.txsearch{position:relative;margin:4px 0 8px}.txsearch input::-webkit-search-cancel-button{display:none}.txsearch .input{padding-right:44px}.txsearch button{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:none;border:0;font-size:18px;line-height:1;padding:8px 10px;color:var(--muted);cursor:pointer}
 .txw{display:flex;border-bottom:1px solid var(--line)}.txw:last-child{border-bottom:0}.txw .tx{flex:1;border-bottom:0}
 .txdel{background:none;border:0;border-left:1px solid var(--line);color:var(--bad);padding:0 16px;cursor:pointer}.txdel:hover{background:var(--bad-soft)}.txdel svg{width:20px;height:20px;display:block}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
@@ -1710,6 +1713,17 @@ async function showReceipt(sale, items, fresh, pays) {
 // Transaksi for a period (the same chips as Laporan), optionally one karyawan.
 // Cards come from the server for the whole period; the list loads 100 at a time.
 const TS = { preset: 'today', from: wibToday(), to: wibToday(), employee: '' };
+// Transaksi search: receipt number, pelanggan, karyawan, kasir, product on the
+// receipt, or an amount ("56000", "56.000", "Rp 56.000" match the total).
+function txSearch(q) {
+  if (!q) return '';
+  const v = pbq(q), parts = [`number ~ ${v}`, `customer.name ~ ${v}`, `customer.username ~ ${v}`, `employee.name ~ ${v}`, `sale_items_via_sale.name ~ ${v}`];
+  // The kasir can't read staff logins, and a filter on them would hide those sales.
+  if (role() !== 'kasir') parts.push(`cashier.name ~ ${v}`);
+  const n = q.replace(/^rp\s*/i, '').replace(/[.,\s]/g, '');
+  if (/^\d+$/.test(n)) parts.push(`total = ${Number(n)}`);
+  return ` && (${parts.join(' || ')})`;
+}
 async function viewTx() {
   const kasir = role() === 'kasir';
   if (TS.preset === 'today') TS.from = TS.to = wibToday();
@@ -1719,6 +1733,7 @@ async function viewTx() {
       <button class="btn" id="tswap">Tukar barang</button>
       <select class="input" id="temp" style="max-width:260px" aria-label="Karyawan"><option value="">Semua karyawan</option></select>
     </div>
+    <div class="txsearch"><input class="input" id="tq" type="search" placeholder="Cari no. transaksi, pelanggan, karyawan, kasir, produk, atau nominal" autocomplete="off" value="${esc(TS.q || '')}" aria-label="Cari transaksi"><button type="button" id="tqx" aria-label="Hapus pencarian" ${TS.q ? '' : 'hidden'}>✕</button></div>
     <div id="trange"></div>
     <div id="tstats"></div>
     <div class="card" id="tlist"><div class="empty">Memuat…</div></div><div id="tmore"></div>`;
@@ -1730,7 +1745,8 @@ async function viewTx() {
   const load = async () => {
     const my = ++seq, next = addDays(TS.to, 1), oneDay = TS.from === TS.to;
     const emp = TS.employee === 'toko' ? ' && employee = ""' : TS.employee ? ` && employee = ${pbq(TS.employee)}` : '';
-    const filter = `created >= "${wibStartUTC(TS.from)}" && created < "${wibStartUTC(next)}"${emp}`;
+    const q = (TS.q || '').trim();
+    const filter = `created >= "${wibStartUTC(TS.from)}" && created < "${wibStartUTC(next)}"${emp}${txSearch(q)}`;
     let page = 1, items = [];
     $('#tlist').innerHTML = `<div class="empty">Memuat…</div>`; $('#tmore').innerHTML = '';
     try {
@@ -1739,27 +1755,31 @@ async function viewTx() {
         list('sales', { filter, sort: '-created', perPage: 100, page, expand: 'customer,cashier,payment_method,ref_sale,employee,preorder' }),
         oneDay && !TS.employee ? api(`/api/legacy/day?day=${TS.from}`).then(x => x.legacy).catch(() => null) : null]);
       if (my !== seq) return;
-      $('#tstats').innerHTML = `<div class="stats">
+      $('#tstats').innerHTML = q ? `<div class="muted sm" style="margin:2px 0 8px">${r.totalItems.toLocaleString('id-ID')} transaksi cocok dengan "<b>${esc(q)}</b>" di periode ini.</div>` : `<div class="stats">
         <div class="card stat"><small>Transaksi</small><b class="num">${sum.count.toLocaleString('id-ID')}</b></div>
         <div class="card stat"><small>Omzet</small><b class="num">${rp(sum.omzet)}</b></div>
         <div class="card stat"><small>Diterima</small><b class="num">${rp(sum.paid)}</b></div>
       </div>${old ? `<div class="card legacy-day"><b>Sistem lama: ${old.count.toLocaleString('id-ID')} transaksi, ${rp(old.total)}</b>
         <div class="muted sm">${old.items.toLocaleString('id-ID')} pcs. Hari ini tercatat di sistem lama, hanya total hariannya yang dipindahkan (tanpa rincian per transaksi).</div></div>` : ''}`;
       const row = s => (canDeleteSale(s) ? `<div class="txw">` : '') + `
-        <button class="tx" data-s="${s.id}">
+        <div class="tx" role="button" tabindex="0" data-s="${s.id}">
           <span><b class="num">${esc(s.number)}</b> <span class="badge ${s.status === 'lunas' ? 'ok' : s.status === 'batal' ? 'bad' : 'warn'}">${s.status}</span>${isLegacy(s) ? ' <span class="badge">sistem lama</span>' : ''}${s.kind === 'tukar' ? ` <span class="badge">tukar${s.expand?.ref_sale ? ' · ' + esc(s.expand.ref_sale.number) : ''}</span>` : ''}</span>
           <b class="num">${rp(s.total)}</b>
           <small class="muted">${fmtTime(s.created)} · ${esc(s.expand?.customer?.name || 'Toko')}${s.expand?.employee ? ' · ' + esc(s.expand.employee.name) : ' · ' + esc(cashierLabel(s.expand?.cashier))}</small>
           <small class="muted">${esc(s.expand?.payment_method?.name || '')}</small>
-        </button>` + (canDeleteSale(s) ? `<button class="txdel" data-del="${s.id}" title="Hapus permanen" aria-label="Hapus permanen ${esc(s.number)}">${TRASH_SVG}</button></div>` : '');
+        </div>` + (canDeleteSale(s) ? `<button class="txdel" data-del="${s.id}" title="Hapus permanen" aria-label="Hapus permanen ${esc(s.number)}">${TRASH_SVG}</button></div>` : '');
       const wire = () => { $('#tlist').querySelectorAll('[data-del]').forEach(b => b.onclick = () => openDeleteSale(items.find(s => s.id === b.dataset.del), () => S.reloadTx?.()));
-        $('#tlist').querySelectorAll('[data-s]').forEach(b => b.onclick = async () => {
+        $('#tlist').querySelectorAll('[data-s]').forEach(b => {
+          b.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); b.onclick(); } };
+          b.onclick = async () => {
+        // Selecting text (to copy) doesn't open the struk.
+        if (String(getSelection?.() || '').trim() && getSelection().containsNode(b, true)) return;
         const sale = items.find(s => s.id === b.dataset.s);
         try {
           const it = await list('sale_items', { filter: `sale = ${pbq(sale.id)}`, sort: 'created' });
           showReceipt(sale, it.items, false);
         } catch (e) { toast(e.message, true); }
-      }); };
+      }; }); };
       const more = total => {
         $('#tmore').innerHTML = items.length < total ? `<button class="btn block" style="margin-top:10px">Tampilkan 100 berikutnya · ${items.length.toLocaleString('id-ID')} dari ${total.toLocaleString('id-ID')}</button>` : '';
         const btn = $('#tmore button');
@@ -1779,6 +1799,9 @@ async function viewTx() {
     } catch (e) { if (my === seq) $('#tlist').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
   };
   rangePicker($('#trange'), TS, load);
+  let tqt;
+  $('#tq').oninput = () => { TS.q = $('#tq').value; $('#tqx').hidden = !TS.q; clearTimeout(tqt); tqt = setTimeout(load, 300); };
+  $('#tqx').onclick = () => { TS.q = ''; $('#tq').value = ''; $('#tqx').hidden = true; load(); $('#tq').focus(); };
   $('#tswap').onclick = askSwap;
   $('#tbon').onclick = () => openBonSearch({ after: () => S.reloadTx?.() });
   S.reloadTx = load;

@@ -1,5 +1,9 @@
 # Nelin Batik kasir: changelog
 
+## 2026-10-08: Transaksi search, copyable rows
+- Search box in Transaksi: receipt number, pelanggan, karyawan, kasir (not for the kasir login), product on the receipt, or an amount (`56000`, `56.000`, `Rp 56.000`). It searches the chosen period; ✕ clears it. While searching, the cards give way to the number of matches.
+- Transaksi rows and the struk text can be selected and copied: dragging over a row selects text instead of opening the struk; a plain click (or Enter) still opens it.
+
 ## 2026-10-08: Delete a voided transaction
 - Owner and superadmin get a trash icon on BATAL rows in Transaksi (and "Hapus permanen" in a BATAL receipt). It asks twice: "Hapus permanen …?", then the receipt number must be typed before the button unlocks.
 - `POST /api/pos/delete/{id}` with `{ confirm: number }` removes the sale, its items, payments and bon rows. A void already took the sale out of stock, Buku Kas and the reports, so nothing moves. Its stock moves stay as the audit trail, and the PocketBase log records who deleted which number. Refused for a sale that isn't voided, old-system and pre-order sales, online-order sales, and a sale another (swap) sale points to. Test `tests/delete-void.mjs`.
