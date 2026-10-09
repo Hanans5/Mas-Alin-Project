@@ -1,5 +1,9 @@
 # Nelin Batik kasir: changelog
 
+## 2026-10-10: Printer langsung (port COM): no more "WritableStream is locked"
+- Prints go through a queue, one at a time: auto-print and a quick "Cetak" no longer collide.
+- A write that hangs for 20 s (printer off, Bluetooth out of range) is aborted with a clear message; the lock is freed and the port closed, so the next print reopens it. A failed print retries once on a fresh port (not after a timeout, to avoid a double struk). A lock the app can't free asks to reload the page.
+
 ## 2026-10-09: Selling by the pack
 - Produk → Ubah: **Isi per pack (pcs)** (empty = not sold per pack) and **Harga per pack** (empty = isi × harga jual, shown as a hint). The product card and Produk list show "pack N pcs Rp …".
 - Kasir and Pre-Order: the cart line's **Harga** button has **Harga per pack** for any staff. Its "Isi per pack" defaults to the product's and can be changed on that line; another size is priced pro rata to the pack price (or size × the pcs price when there's no pack price). The line counts packs: "2 Pack (6 pcs) × Rp …", and its +/− add or remove a pack.

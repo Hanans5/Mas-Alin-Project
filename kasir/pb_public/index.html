@@ -1639,16 +1639,61 @@ async function serialConnect() {
   serialPort = port;
   return port;
 }
-async function sendSerial(bytes) {
+// One print at a time (auto-print + a quick "Cetak" used to collide with
+// "Cannot create writer when WritableStream is locked"). A write that hangs
+// (printer off, Bluetooth dropped) is aborted after SERIAL_TIMEOUT so the
+// lock is freed; a locked or broken port is closed, reopened and tried once more.
+let serialQueue = Promise.resolve(), serialWriter = null;
+const SERIAL_TIMEOUT = 20000;
+// abort()/close() wait for a write still in flight; never let that hang the queue
+const settle = (p, ms = 2000) => Promise.race([Promise.resolve(p).catch(() => {}), new Promise(r => setTimeout(r, ms))]);
+function sendSerial(bytes) {
+  const job = serialQueue.then(() => serialSend(bytes));
+  serialQueue = job.catch(() => {});
+  return job;
+}
+async function serialOpen() {
   if (!hasSerial()) throw new Error('Browser ini tidak mendukung printer serial. Pakai Chrome atau Edge di PC.');
   if (!serialPort) serialPort = (await navigator.serial.getPorts())[0] || null;
   if (!serialPort) throw new Error('Printer belum disambungkan. Buka 🖨 Printer → Sambungkan printer.');
   if (!serialPort.writable) {
     try { await serialPort.open({ baudRate: 9600 }); }
-    catch (e) { throw new Error('Port printer tidak bisa dibuka (dipakai aplikasi lain, atau printer mati?). ' + e.message); }
+    catch (e) { if (!/already open/i.test(e.message)) throw new Error('Port printer tidak bisa dibuka (dipakai aplikasi lain, atau printer mati?). ' + e.message); }
   }
-  const w = serialPort.writable.getWriter();
-  try { await w.write(bytes); } finally { w.releaseLock(); }
+  if (!serialPort.writable) throw new Error('Port printer tidak siap. Matikan-nyalakan printer lalu coba lagi.');
+}
+// Free a stuck lock and close the port so the next open starts clean.
+async function serialReset() {
+  const w = serialWriter; serialWriter = null;
+  if (w) { try { settle(w.abort()); } catch (_) {} try { w.releaseLock(); } catch (_) {} }
+  if (serialPort) { try { await settle(serialPort.close()); } catch (_) {} }
+}
+async function serialWrite(bytes) {
+  await serialOpen();
+  if (serialPort.writable.locked) { await serialReset(); await serialOpen(); }
+  if (serialPort.writable.locked) throw new Error('Port printer masih terkunci. Muat ulang halaman ini lalu cetak lagi.');
+  const w = serialWriter = serialPort.writable.getWriter();
+  let timer;
+  try {
+    await Promise.race([w.write(bytes), new Promise((_, no) => { timer = setTimeout(() => no(new Error('Printer tidak merespons (mati atau di luar jangkauan Bluetooth?).')), SERIAL_TIMEOUT); })]);
+  } catch (e) {
+    try { settle(w.abort()); } catch (_) {}
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    try { w.releaseLock(); } catch (_) {}
+    if (serialWriter === w) serialWriter = null;
+  }
+}
+async function serialSend(bytes) {
+  try { await serialWrite(bytes); }
+  catch (e) {
+    // one retry on a fresh port; not after a timeout (the printer may have printed part of it)
+    await serialReset();
+    if (/tidak merespons/.test(e.message)) throw e;
+    try { await serialWrite(bytes); }
+    catch (e2) { await serialReset(); throw e2; }
+  }
 }
 async function printReceipt(sale, items, pays) {
   if (POSP.printMode === 'serial') {
