@@ -1,5 +1,11 @@
 # Nelin Batik kasir: changelog
 
+## 2026-10-12: Kasir photos load fast and stay on the device
+- The Kasir grid asked for `?thumb=160x160`, but PocketBase only makes a thumb size listed on the field, so every tablet got the full photos (6.4 MB for 37 products). `products.photo` now lists `240x240` (Kasir grid) and `480x600` (for the store's 4:5 cards); `settings.promo_image` lists `0x120`. The Kasir asks for `240x240`, a new URL, so Cloudflare's 30-day copies of the full photos aren't reused. 37 photos are now about 0.7 MB.
+- `sw.js` (service worker) keeps product photo thumbnails on the device: cache-first, only `/api/files/products/…?thumb=`. A re-uploaded photo has a new file name. The app page and API are never cached.
+- The catalog (products, categories, methods, karyawan) is kept in `localStorage` (`nb_catalog`, per login, cleared on logout). Kasir and Pre-Order baru draw from it at once, even after a reload, and refresh stock in the background; only the very first visit shows "Memuat produk…". The karyawan list now loads in parallel with the rest.
+- Migration `1791260000_photo_thumbs`.
+
 ## 2026-10-12: Delete a cancelled pre-order
 - Owner and superadmin get a trash icon on BATAL rows in Pre-Order (and "Hapus pre-order" in a BATAL pre-order's detail). Two steps, like deleting a voided sale: "Hapus …?", then type the PO number.
 - `POST /api/po/{id}/delete` with `{ confirm: number }` marks the pre-order deleted (new fields `deleted`, `deleted_at`, `deleted_by`) and logs who did it. It leaves the Pre-Order list, but the record stays so its DP, refund or DP hangus keep their place in Buku Kas and Laba Rugi; Laporan Pre-Order shows it as "batal (…, dihapus)". Saldo, omzet and stock don't change. Only BATAL pre-orders.

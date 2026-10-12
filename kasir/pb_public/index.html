@@ -406,6 +406,7 @@ textarea.input{min-height:90px;resize:vertical}
 // shows what it's told and sends what the kasir picked.
 
 const LS_AUTH = 'nb_auth';
+const LS_CAT = 'nb_catalog';
 const S = {
   token: '', user: null, settings: null,
   products: [], categories: [], methods: [],
@@ -492,10 +493,12 @@ function saveAuth(token, user) {
 }
 function logout() {
   S.token = ''; S.user = null; S.cart = []; S.customer = null;
-  try { localStorage.removeItem(LS_AUTH); } catch (_) {}
+  try { localStorage.removeItem(LS_AUTH); localStorage.removeItem(LS_CAT); } catch (_) {}
   renderLogin();
 }
 async function boot() {
+  // sw.js keeps product photo thumbnails on the device (nothing else).
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(LS_AUTH) || 'null'); } catch (_) {}
   if (!saved?.token) return renderLogin();
@@ -723,14 +726,26 @@ function renderShell() {
 
 // ── POS ─────────────────────────────────────────────
 async function loadCatalog() {
-  const [p, c, m] = await Promise.all([
+  const [p, c, m, e] = await Promise.all([
     list('products', { filter: 'active = true', sort: 'name', fields: 'id,name,sku,barcode,category,price,price_kodi,price_jumbo,pack_size,price_pack,pack_of,pack_isi,photo,stock,min_stock,unit' }),
     list('categories', { sort: 'name' }),
     list('payment_methods', { filter: 'active = true', sort: 'created' }),
+    // Karyawan who can be credited with a sale (one shared kasir login).
+    list('employees', { filter: 'active = true', sort: 'name', fields: 'id,name' }).catch(() => ({ items: [] })),
   ]);
-  S.products = packStock(p.items); S.categories = c.items; S.methods = m.items;
-  // Karyawan who can be credited with a sale (one shared kasir login).
-  try { S.employees = (await list('employees', { filter: 'active = true', sort: 'name', fields: 'id,name' })).items; } catch (_) { S.employees = []; }
+  // Kept on this device so the next visit (even after a reload) draws at once.
+  try { localStorage.setItem(LS_CAT, JSON.stringify({ user: S.user?.id, products: p.items, categories: c.items, methods: m.items, employees: e.items })); } catch (_) {}
+  S.products = packStock(p.items); S.categories = c.items; S.methods = m.items; S.employees = e.items;
+}
+// The catalog saved by loadCatalog() on this device, for the same login.
+function cachedCatalog() {
+  if (S.products?.length && S.methods?.length) return true;
+  try {
+    const c = JSON.parse(localStorage.getItem(LS_CAT) || 'null');
+    if (!c || c.user !== S.user?.id || !c.products?.length || !c.methods?.length) return false;
+    S.products = packStock(c.products); S.categories = c.categories; S.methods = c.methods; S.employees = c.employees || [];
+    return true;
+  } catch (_) { return false; }
 }
 const prodById = id => S.products.find(p => p.id === id) || S.customItems?.[id];
 // A pack product (pack_of + pack_isi, e.g. "Lakban 1 Pack" = 6 × Lakban) has no
@@ -760,8 +775,14 @@ function swapCart(mode) {
 
 async function viewPOS() {
   if (S.tab === 'pos') swapCart('pos');
-  $('#view').innerHTML = `<div class="empty">Memuat produk…</div>`;
-  try { await loadCatalog(); } catch (e) { $('#view').innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
+  // Coming back to Kasir: draw the catalog already in memory at once and
+  // refresh stock in the background; only the first visit waits.
+  const tab = S.tab;
+  if (cachedCatalog()) loadCatalog().then(() => { if (S.tab === tab && $('#grid')) { renderGrid(); renderCart(); } }).catch(() => {});
+  else {
+    $('#view').innerHTML = `<div class="empty">Memuat produk…</div>`;
+    try { await loadCatalog(); } catch (e) { $('#view').innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
+  }
   $('#view').innerHTML = `
   <div class="pos">
     <section>
@@ -831,7 +852,7 @@ function renderGrid() {
     const low = p.min_stock > 0 && p.stock <= p.min_stock;
     return `<button class="prod ${POSP.images ? 'withimg' : ''}" data-id="${p.id}" ${left <= 0 && !isPO() ? 'disabled' : ''}>
       ${inCart[p.id] ? `<span class="badge inCart">${inCart[p.id]} di keranjang</span>` : ''}
-      ${POSP.images ? (p.photo ? `<img class="pimg" src="/api/files/products/${p.id}/${p.photo}?thumb=160x160" alt="" loading="lazy">` : `<span class="pimg ph" aria-hidden="true">${esc(p.name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase())}</span>`) : ''}
+      ${POSP.images ? (p.photo ? `<img class="pimg" src="/api/files/products/${p.id}/${p.photo}?thumb=240x240" alt="" width="240" height="240" loading="lazy" decoding="async">` : `<span class="pimg ph" aria-hidden="true">${esc(p.name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase())}</span>`) : ''}
       <span class="n">${esc(p.name)}</span>
       <span class="s ${low ? 'low' : ''}">${esc(p.sku)} · stok ${p.stock}${low ? ' · menipis' : ''}</span>
       <span class="p num">${rp(p.price)}${p.price_kodi ? `<small class="kodi">kodian ${rp(p.price_kodi)}</small>` : ''}${p.price_jumbo ? `<small class="kodi">jumbo ${rp(p.price_jumbo)}</small>` : ''}${p.pack_size > 0 ? `<small class="kodi">pack ${p.pack_size} pcs ${rp(packPriceOf(p, p.pack_size))}</small>` : ''}</span>
