@@ -16,6 +16,7 @@ routerAdd("POST", "/api/stock/move", (e) => {
   e.app.runInTransaction((tx) => {
     let p;
     try { p = tx.findRecordById("products", b.product); } catch (_) { throw new BadRequestError("Produk tidak ditemukan."); }
+    if (p.getString("pack_of")) throw new BadRequestError(`${p.getString("name")} adalah produk pack: stoknya mengikuti produk asalnya. Ubah stok di produk asal.`);
     const qty = b.type === "keluar" ? -L.int(b.qty, "Qty") : L.int(b.qty || 0, "Qty");
     id = L.moveStock(tx, { product: p, type: b.type, qty, counted: b.counted, note: String(b.note || "").slice(0, 300), by: e.auth.id }).id;
   });

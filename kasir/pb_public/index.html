@@ -724,15 +724,29 @@ function renderShell() {
 // ── POS ─────────────────────────────────────────────
 async function loadCatalog() {
   const [p, c, m] = await Promise.all([
-    list('products', { filter: 'active = true', sort: 'name', fields: 'id,name,sku,barcode,category,price,price_kodi,price_jumbo,pack_size,price_pack,photo,stock,min_stock,unit' }),
+    list('products', { filter: 'active = true', sort: 'name', fields: 'id,name,sku,barcode,category,price,price_kodi,price_jumbo,pack_size,price_pack,pack_of,pack_isi,photo,stock,min_stock,unit' }),
     list('categories', { sort: 'name' }),
     list('payment_methods', { filter: 'active = true', sort: 'created' }),
   ]);
-  S.products = p.items; S.categories = c.items; S.methods = m.items;
+  S.products = packStock(p.items); S.categories = c.items; S.methods = m.items;
   // Karyawan who can be credited with a sale (one shared kasir login).
   try { S.employees = (await list('employees', { filter: 'active = true', sort: 'name', fields: 'id,name' })).items; } catch (_) { S.employees = []; }
 }
 const prodById = id => S.products.find(p => p.id === id) || S.customItems?.[id];
+// A pack product (pack_of + pack_isi, e.g. "Lakban 1 Pack" = 6 × Lakban) has no
+// stock of its own: show floor(base stock / isi) and HPP = base HPP × isi.
+function packStock(list) {
+  const byId = Object.fromEntries(list.map(p => [p.id, p]));
+  for (const p of list) {
+    const b = p.pack_of && byId[p.pack_of];
+    if (!b || !(p.pack_isi > 0)) continue;
+    p.stock = Math.floor(b.stock / p.pack_isi);
+    if (b.hpp !== undefined) p.hpp = b.hpp * p.pack_isi;
+  }
+  return list;
+}
+// pcs of a base product already in the cart, pack products included
+const basePcsInCart = id => S.cart.reduce((a, l) => { const p = prodById(l.id); return a + (l.id === id ? linePcs(l) : p?.pack_of === id ? l.qty * p.pack_isi : 0); }, 0);
 const isPO = () => S.mode === 'po';
 // Kasir and Pre-Order keep separate carts; switching screens swaps them.
 function swapCart(mode) {
@@ -812,7 +826,8 @@ function renderGrid() {
   const items = filtered();
   const inCart = Object.fromEntries(S.cart.map(l => [l.id, linePcs(l)]));
   $('#grid').innerHTML = items.length ? items.map(p => {
-    const left = p.stock - (inCart[p.id] || 0);
+    const base = p.pack_of && prodById(p.pack_of);
+    const left = base ? Math.floor((base.stock - basePcsInCart(base.id)) / p.pack_isi) : p.stock - basePcsInCart(p.id);
     const low = p.min_stock > 0 && p.stock <= p.min_stock;
     return `<button class="prod ${POSP.images ? 'withimg' : ''}" data-id="${p.id}" ${left <= 0 && !isPO() ? 'disabled' : ''}>
       ${inCart[p.id] ? `<span class="badge inCart">${inCart[p.id]} di keranjang</span>` : ''}
@@ -829,7 +844,10 @@ function addToCart(id, n = 1) {
   const p = prodById(id); if (!p) return;
   const l = S.cart.find(x => x.id === id);
   const now = l ? linePcs(l) : 0, add = l?.tier === 'pack' ? n * l.pack : n;  // on a pack line n counts packs
-  if (!isPO() && now + add > p.stock) return toast(`Stok ${p.name} hanya ${p.stock}${now ? `, sudah ${now} pcs di keranjang` : ''}.`, true);
+  const base = p.pack_of && prodById(p.pack_of);
+  if (!isPO() && base) {
+    if (basePcsInCart(base.id) + n * p.pack_isi > base.stock) return toast(`Stok ${base.name} hanya ${base.stock} pcs (1 pack = ${p.pack_isi} pcs).`, true);
+  } else if (!isPO() && basePcsInCart(p.id) + add > p.stock) return toast(`Stok ${p.name} hanya ${p.stock}${now ? `, sudah ${now} pcs di keranjang` : ''}.`, true);
   if (l) l.qty += n; else S.cart.push({ id, qty: n });
   cartChanged();
 }
@@ -945,7 +963,8 @@ function openLinePrice(id) {
 function setQty(id, qty) {
   const p = prodById(id);
   const l0 = S.cart.find(l => l.id === id), per = l0?.tier === 'pack' ? l0.pack : 1;  // a pack line counts packs
-  qty = Math.max(0, Math.min(parseInt(qty, 10) || 0, isPO() ? 1e6 : p ? Math.floor(p.stock / per) : 0));
+  const max = p?.pack_of ? p.stock : p ? Math.floor(p.stock / per) : 0;
+  qty = Math.max(0, Math.min(parseInt(qty, 10) || 0, isPO() ? 1e6 : max));
   S.cart = S.cart.map(l => l.id === id ? { ...l, qty } : l).filter(l => l.qty > 0);
   cartChanged();
 }
@@ -1003,7 +1022,7 @@ function renderCart() {
       return `<div class="line">
         <div><div class="n">${esc(p.name)}</div><div class="u num ${parts.some(x => x.tier !== 'normal') ? 'special' : ''}">${how}</div></div>
         <div class="t num">${rp(lineTotal(l))}</div>
-        <div class="u">${l.custom ? 'barang custom' : esc(p.sku)}${canPrice() && !l.custom ? ` <button class="lp ${TIER_NAME[l.tier] ? 'on' : ''}" data-price="${l.id}">${TAG_ICON}${TIER_NAME[l.tier] || 'Harga'}</button>` : ''}</div>
+        <div class="u">${l.custom ? 'barang custom' : esc(p.sku)}${canPrice() && !l.custom && !p.pack_of ? ` <button class="lp ${TIER_NAME[l.tier] ? 'on' : ''}" data-price="${l.id}">${TAG_ICON}${TIER_NAME[l.tier] || 'Harga'}</button>` : ''}</div>
         <div class="qty">
           <button data-dec="${l.id}" aria-label="Kurangi">−</button>
           <input data-qty="${l.id}" value="${l.qty}" inputmode="numeric" aria-label="Jumlah">
@@ -1993,7 +2012,7 @@ async function viewProducts() {
   let all = [], cats = [];
   const load = async () => {
     const [p, c] = await Promise.all([list('products', { sort: 'name' }), list('categories', { sort: 'name' })]);
-    all = p.items; cats = c.items; S.categories = cats;
+    all = packStock(p.items); cats = c.items; S.categories = cats;
     $('#pc').innerHTML = `<option value="">Semua kategori</option>` + cats.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
     $('#pc').value = PF.cat;
     draw();
@@ -2073,6 +2092,12 @@ function editProduct(p, cats, all, reload) {
         <input class="input num" id="eppk" inputmode="numeric" value="${p.price_pack || ''}"></div>
       </div>
       <div class="muted sm" style="margin-top:6px">Kodian dan jumbo dipilih pemilik lewat tombol Harga di keranjang. Pack bisa dipilih semua kasir; stok berkurang sebanyak isi pack.</div>
+      <div class="row">
+        <div><label class="f">Produk pack dari <small>(kode sendiri, stok ikut produk asal)</small></label>
+        <select class="input" id="epo"><option value="">— bukan produk pack —</option>${all.filter(x => x.id !== p.id && !x.pack_of).map(x => `<option value="${x.id}" ${x.id === p.pack_of ? 'selected' : ''}>${esc(x.name)} · ${esc(x.sku)}</option>`).join('')}</select></div>
+        <div><label class="f">Isi per pack (pcs)</label><input class="input num" id="epi" inputmode="numeric" value="${p.pack_isi || ''}" placeholder="mis. 6"></div>
+      </div>
+      <div class="muted sm" id="epo-hint" style="margin-top:6px"></div>
       <div id="emargin" class="muted" style="font-size:14px;margin-top:6px"></div>
       <div class="row">
         <div><label class="f">Peringatan stok di bawah</label><input class="input num" id="em" inputmode="numeric" value="${p.min_stock}"></div>
@@ -2104,6 +2129,14 @@ function editProduct(p, cats, all, reload) {
   // Pack price suggestion: isi per pack × harga jual (used when left empty).
   const packHint = () => { const k = num('epk'), pr = num('ep'); $('#eppk-hint').textContent = k ? `(kosong = ${k} × harga jual = ${rp(k * pr)})` : ''; $('#eppk').placeholder = k ? String(k * pr) : 'isi per pack dulu'; };
   $('#epk').oninput = packHint; $('#ep').addEventListener('input', packHint); packHint();
+  // Pack product: harga jual = price of one pack; HPP and stock follow the base product.
+  const poHint = () => {
+    const b = all.find(x => x.id === $('#epo').value), isi = num('epi');
+    $('#epo-hint').innerHTML = b ? `Terjual 1 = stok ${esc(b.name)} −${isi || '?'} pcs. Stok tampil ${isi ? Math.floor(b.stock / isi) : '?'} pack, HPP ${isi ? rp(b.hpp * isi) : '?'} per pack. Harga jual di atas = harga per pack. Stok awal tidak dipakai.` : '';
+    if (b && isi && !$('#eh').dataset.touched) $('#eh').value = b.hpp * isi;
+  };
+  $('#eh').addEventListener('input', () => { $('#eh').dataset.touched = 1; });
+  $('#epo').onchange = poHint; $('#epi').oninput = poHint; poHint();
   $('#eno').onclick = closeModal;
   $('#ef').onsubmit = async ev => {
     ev.preventDefault();
@@ -2111,8 +2144,11 @@ function editProduct(p, cats, all, reload) {
       name: $('#en').value.trim(), category: $('#ec').value, unit: $('#eu').value.trim(),
       sku: $('#es').value.trim().toUpperCase(), barcode: $('#eb').value.trim(),
       hpp: num('eh'), price: num('ep'), price_kodi: num('ek'), price_jumbo: num('ej'), pack_size: num('epk'), price_pack: num('epk') ? num('eppk') : 0, min_stock: num('em'), active: $('#ea').checked,
-      hide_online: $('#eho').checked, weight: num('ew'), description: $('#ed').value.trim(),
+      pack_of: $('#epo').value, pack_isi: $('#epo').value ? num('epi') : 0,
+      hide_online: $('#eho').checked || !!$('#epo').value, weight: num('ew'), description: $('#ed').value.trim(),
     };
+    if (body.pack_of && !(body.pack_isi > 0)) return $('#eerr').innerHTML = `<div class="err">Isi per pack harus diisi untuk produk pack.</div>`;
+    if (body.pack_of && (body.pack_size || body.price_kodi || body.price_jumbo)) return $('#eerr').innerHTML = `<div class="err">Produk pack tidak memakai harga kodian, jumbo atau pack sendiri. Kosongkan kolom itu.</div>`;
     if (body.price < body.hpp && !confirmInline('eerr', 'Harga jual di bawah HPP — produk ini rugi. Tekan Simpan lagi untuk tetap menyimpan.')) return;
     if (body.price_kodi && body.price_kodi >= body.price) return $('#eerr').innerHTML = `<div class="err">Harga kodian harus lebih murah dari harga jual.</div>`;
     if (body.price_kodi && body.price_kodi < body.hpp && !confirmInline('eerr', 'Harga kodian di bawah HPP. Tekan Simpan lagi untuk tetap menyimpan.')) return;
@@ -2123,7 +2159,7 @@ function editProduct(p, cats, all, reload) {
       const saved = await api(`/api/collections/products/records${isNew ? '' : '/' + p.id}`, { method: isNew ? 'POST' : 'PATCH', body });
       const photo = $('#ef1').files[0];
       if (photo) await upload(`/api/collections/products/records/${saved.id}`, { photo });
-      const opening = isNew ? num('e0') : 0;
+      const opening = isNew && !body.pack_of ? num('e0') : 0;
       if (opening > 0) await api('/api/stock/move', { method: 'POST', body: { product: saved.id, type: 'masuk', qty: opening, note: 'stok awal' } });
       closeModal(); toast(isNew ? 'Produk ditambahkan.' : 'Produk disimpan.'); reload();
     } catch (e) {

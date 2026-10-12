@@ -1,5 +1,11 @@
 # Nelin Batik kasir: changelog
 
+## 2026-10-12: Pack products (own code, stock from the base product)
+- Produk → Ubah: **Produk pack dari** (the base product) + **Isi per pack**. A pack product has its own code, name and price (the price of one pack) and no stock of its own: the Kasir shows floor(base stock ÷ isi) packs, and its HPP is base HPP × isi. It's hidden from the online store, and Stok masuk/keluar/opname on it is refused (change the base instead).
+- Selling one (Kasir, Pre-Order, tukar) turns the line into a pack line of the base product at the pack product's price, so stock (isi pcs per pack), void, tukar/retur, reports, laba, struk and invoice all count the base in pcs. The Harga button is hidden on pack-product lines.
+- Tukar/retur now values returned pcs pro rata to what was paid for them (exact for a pack price that doesn't split evenly per pcs).
+- Migration `1791240000_pack_product`; test `tests/pack-product.mjs`. First pack product: LAK-LAK-0006 "Lakban 1 Pack" (6 × Lakban).
+
 ## 2026-10-10: Printer langsung (port COM): no more "WritableStream is locked"
 - Prints go through a queue, one at a time: auto-print and a quick "Cetak" no longer collide.
 - A write that hangs for 20 s (printer off, Bluetooth out of range) is aborted with a clear message; the lock is freed and the port closed, so the next print reopens it. A failed print retries once on a fresh port (not after a timeout, to avoid a double struk). A lock the app can't free asks to reload the page.

@@ -177,8 +177,8 @@ function splitPrice(p, qty, want) {
   const w = want || {};
   // Packs (w.packs × w.pack_size pcs) first, then any loose pcs at w.loose's tier.
   if (w.packs) {
-    if (!(p.getInt("pack_size") > 0)) throw new BadRequestError(`${p.getString("name")} belum punya isi per pack. Atur di Produk.`);
-    const each = packPrice(p, w.pack_size), pcs = w.packs * w.pack_size;
+    if (!w.pack_price && !(p.getInt("pack_size") > 0)) throw new BadRequestError(`${p.getString("name")} belum punya isi per pack. Atur di Produk.`);
+    const each = w.pack_price || packPrice(p, w.pack_size), pcs = w.packs * w.pack_size;
     const out = [{ qty: pcs, price: Math.round(each / w.pack_size), subtotal: w.packs * each, tier: "pack", pack_size: w.pack_size }];
     return qty > pcs ? out.concat(splitPrice(p, qty - pcs, w.loose || {})) : out;
   }
@@ -191,14 +191,28 @@ function splitPrice(p, qty, want) {
   return [{ qty, price: p.getInt("price"), tier: "normal" }];
 }
 
+// A pack product (pack_of + pack_isi, e.g. "Lakban 1 Pack") sells as a pack
+// line of its base product at its own price; returns [productId, tier].
+function packProductItem(tx, e, it) {
+  let p = null;
+  try { p = tx.findRecordById("products", it.product); } catch (_) { return [it.product, itemTier(e, it)]; }
+  const base = p.getString("pack_of"), isi = p.getInt("pack_isi");
+  if (!base) return [it.product, itemTier(e, it)];
+  if (!p.getBool("active")) throw new BadRequestError(`${p.getString("name")} tidak aktif.`);
+  if (isi < 1) throw new BadRequestError(`${p.getString("name")} belum punya isi per pack.`);
+  const t = itemTier(e, { tier: "pack", pack_size: isi });
+  t.pack_price = p.getInt("price");
+  if (!(t.pack_price > 0)) throw new BadRequestError(`${p.getString("name")} belum punya harga.`);
+  return [base, t];
+}
 // Merge the cart's lines per product so stock is checked against the real
 // total: qty in pcs (packs × pack_size for a pack line). A special price on
 // any loose line covers the product's loose pcs; one pack size per product.
 function mergeWant(want, pid, q, t) {
-  const w = want[pid] || (want[pid] = { qty: 0, tier: "normal", price: null, packs: 0, pack_size: 0, loose: { tier: "normal", price: null } });
+  const w = want[pid] || (want[pid] = { qty: 0, tier: "normal", price: null, packs: 0, pack_size: 0, pack_price: 0, loose: { tier: "normal", price: null } });
   if (t.tier === "pack") {
-    if (w.packs && w.pack_size !== t.pack_size) throw new BadRequestError("Satu produk hanya bisa satu ukuran pack per transaksi.");
-    w.packs += q; w.pack_size = t.pack_size; w.qty += q * t.pack_size;
+    if (w.packs && (w.pack_size !== t.pack_size || w.pack_price !== (t.pack_price || 0))) throw new BadRequestError("Satu produk hanya bisa satu ukuran pack per transaksi.");
+    w.packs += q; w.pack_size = t.pack_size; w.pack_price = t.pack_price || 0; w.qty += q * t.pack_size;
     return;
   }
   w.qty += q;
@@ -214,7 +228,8 @@ function priceCart(tx, e, b) {
   for (const it of items) {
     const q = int(it.qty, "Qty");
     if (q < 1) throw new BadRequestError("Qty minimal 1.");
-    mergeWant(want, it.product, q, itemTier(e, it));
+    const [pid, t] = packProductItem(tx, e, it);
+    mergeWant(want, pid, q, t);
   }
 
   const lines = [];
@@ -274,7 +289,7 @@ function returnable(tx, sale) {
     }
   }
   return Object.values(out).map((r) => ({
-    product: r.product, name: r.name, sold: r.sold, returned: r.returned, left: r.sold - r.returned,
+    product: r.product, name: r.name, sold: r.sold, returned: r.returned, left: r.sold - r.returned, value: r.value,
     price: r.sold ? Math.round(r.value / r.sold) : 0, hpp: r.sold ? Math.round(r.hppValue / r.sold) : 0,
   }));
 }
@@ -305,7 +320,8 @@ function pricePreorder(tx, e, b) {
       subtotal += price * q;
       continue;
     }
-    mergeWant(want, it.product, q, itemTier(e, it));
+    const [pid, t] = packProductItem(tx, e, it);
+    mergeWant(want, pid, q, t);
   }
   for (const pid in want) {
     let p;

@@ -217,8 +217,10 @@ routerAdd("POST", "/api/pos/swap", (e) => {
       const c = can[r.product];
       if (!c) throw new BadRequestError("Barang yang dikembalikan tidak ada di transaksi ini.");
       if (q > c.left) throw new BadRequestError(`${c.name}: maksimal ${c.left} pcs bisa ditukar.`);
-      back.push({ ...c, qty: q });
-      backValue += c.price * q;
+      // pro rata of what was paid for them (a pack price needn't split evenly per pcs)
+      const value = q === c.sold ? c.value : Math.round(c.value * q / c.sold);
+      back.push({ ...c, qty: q, value });
+      backValue += value;
     }
     if (!back.length) throw new BadRequestError("Pilih barang yang dikembalikan.");
     const employee = L.pickEmployee(tx, b.employee);
@@ -259,7 +261,7 @@ routerAdd("POST", "/api/pos/swap", (e) => {
     const ic = tx.findCollectionByNameOrId("sale_items");
     for (const r of back) {
       const it = new Record(ic);
-      it.load({ sale: sale.id, product: r.product, name: r.name, qty: -r.qty, price: r.price, hpp: r.hpp, subtotal: -r.price * r.qty, tier: "retur" });
+      it.load({ sale: sale.id, product: r.product, name: r.name, qty: -r.qty, price: r.price, hpp: r.hpp, subtotal: -r.value, tier: "retur" });
       tx.save(it);
     }
     for (const l of cart.lines) {
