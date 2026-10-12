@@ -1,5 +1,8 @@
 # Nelin Batik kasir: changelog
 
+## 2026-10-12: Kasir shows full-size photos, kept on the device
+- The Kasir grid shows the original photos again (no `?thumb=`), at full quality. `sw.js` now keeps every `/api/files/products/…` file on the device (cache `nb-photos-v2`, the old thumbnail cache is deleted), so each photo is downloaded once per device. Registered as `/sw.js?v=2`: Cloudflare keeps `sw.js` for hours, so bump `?v=` whenever it changes.
+
 ## 2026-10-12: Kasir photos load fast and stay on the device
 - The Kasir grid asked for `?thumb=160x160`, but PocketBase only makes a thumb size listed on the field, so every tablet got the full photos (6.4 MB for 37 products). `products.photo` now lists `240x240` (Kasir grid) and `480x600` (for the store's 4:5 cards); `settings.promo_image` lists `0x120`. The Kasir asks for `240x240`, a new URL, so Cloudflare's 30-day copies of the full photos aren't reused. 37 photos are now about 0.7 MB.
 - `sw.js` (service worker) keeps product photo thumbnails on the device: cache-first, only `/api/files/products/…?thumb=`. A re-uploaded photo has a new file name. The app page and API are never cached.

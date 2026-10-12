@@ -497,8 +497,9 @@ function logout() {
   renderLogin();
 }
 async function boot() {
-  // sw.js keeps product photo thumbnails on the device (nothing else).
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+  // sw.js keeps product photos on the device (nothing else). Bump ?v= when
+  // sw.js changes: Cloudflare keeps the old file for hours.
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js?v=2').catch(() => {});
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(LS_AUTH) || 'null'); } catch (_) {}
   if (!saved?.token) return renderLogin();
@@ -852,7 +853,7 @@ function renderGrid() {
     const low = p.min_stock > 0 && p.stock <= p.min_stock;
     return `<button class="prod ${POSP.images ? 'withimg' : ''}" data-id="${p.id}" ${left <= 0 && !isPO() ? 'disabled' : ''}>
       ${inCart[p.id] ? `<span class="badge inCart">${inCart[p.id]} di keranjang</span>` : ''}
-      ${POSP.images ? (p.photo ? `<img class="pimg" src="/api/files/products/${p.id}/${p.photo}?thumb=240x240" alt="" width="240" height="240" loading="lazy" decoding="async">` : `<span class="pimg ph" aria-hidden="true">${esc(p.name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase())}</span>`) : ''}
+      ${POSP.images ? (p.photo ? `<img class="pimg" src="/api/files/products/${p.id}/${p.photo}" alt="" width="240" height="240" loading="lazy" decoding="async">` : `<span class="pimg ph" aria-hidden="true">${esc(p.name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase())}</span>`) : ''}
       <span class="n">${esc(p.name)}</span>
       <span class="s ${low ? 'low' : ''}">${esc(p.sku)} · stok ${p.stock}${low ? ' · menipis' : ''}</span>
       <span class="p num">${rp(p.price)}${p.price_kodi ? `<small class="kodi">kodian ${rp(p.price_kodi)}</small>` : ''}${p.price_jumbo ? `<small class="kodi">jumbo ${rp(p.price_jumbo)}</small>` : ''}${p.pack_size > 0 ? `<small class="kodi">pack ${p.pack_size} pcs ${rp(packPriceOf(p, p.pack_size))}</small>` : ''}</span>
