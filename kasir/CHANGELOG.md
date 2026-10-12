@@ -3,6 +3,7 @@
 ## 2026-10-12: Delete a cancelled pre-order
 - Owner and superadmin get a trash icon on BATAL rows in Pre-Order (and "Hapus pre-order" in a BATAL pre-order's detail). Two steps, like deleting a voided sale: "Hapus …?", then type the PO number.
 - `POST /api/po/{id}/delete` with `{ confirm: number }` marks the pre-order deleted (new fields `deleted`, `deleted_at`, `deleted_by`) and logs who did it. It leaves the Pre-Order list, but the record stays so its DP, refund or DP hangus keep their place in Buku Kas and Laba Rugi; Laporan Pre-Order shows it as "batal (…, dihapus)". Saldo, omzet and stock don't change. Only BATAL pre-orders.
+- A deleted pre-order whose DP was fully refunded (DP in and refund out net to zero per method) also leaves Buku Kas; saldo stays the same. DP hangus stays (it's income).
 - Migration `1791250000_po_deleted`; test `tests/po-delete.mjs`.
 
 ## 2026-10-12: Pack products (own code, stock from the base product)

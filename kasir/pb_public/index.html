@@ -1976,7 +1976,7 @@ async function openInvoice(sale) {
 // A cancelled pre-order leaves the list (two steps, like a voided sale). Its
 // DP stays in Buku Kas / Laba Rugi: the server only marks it deleted.
 function openDeletePo(po, after) {
-  const money = po.cancel_mode === 'hangus' ? `DP ${rp(po.dp)} tetap tercatat sebagai pendapatan (DP hangus) di Laba Rugi dan Buku Kas.` : po.dp ? `DP ${rp(po.dp)} dan pengembaliannya tetap tercatat di Buku Kas.` : '';
+  const money = po.cancel_mode === 'hangus' ? `DP ${rp(po.dp)} tetap tercatat sebagai pendapatan (DP hangus) di Laba Rugi dan Buku Kas.` : po.dp ? `DP masuk ${rp(po.dp)} dan pengembaliannya juga hilang dari Buku Kas (bersih nol, saldo tetap; kalau DP dikembalikan dengan metode yang sama).` : '';
   openModal(`
     <h2>Hapus ${esc(po.number)}?</h2>
     <div class="muted">Pre-order yang sudah dibatalkan ini hilang dari daftar Pre-Order. ${money} Saldo, omzet dan stok tidak berubah. <b>Tidak bisa dikembalikan.</b></div>

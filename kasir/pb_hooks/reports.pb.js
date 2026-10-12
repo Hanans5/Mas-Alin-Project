@@ -179,7 +179,10 @@ routerAdd("GET", "/api/reports/cashbook", (e) => {
     SELECT date(datetime(pp.created,'+7 hours')), pp.created, CASE pp.kind WHEN 'refund' THEN 'keluar' ELSE 'masuk' END, pp.amount,
            CASE pp.kind WHEN 'refund' THEN 'Pengembalian DP pre-order' ELSE 'DP pre-order' END, po.number, COALESCE(m.name,''), pp.note,
            CASE WHEN pp.split THEN 'Split' ELSE COALESCE(m.name,'') END
-      FROM preorder_payments pp JOIN preorders po ON po.id = pp.preorder LEFT JOIN payment_methods m ON m.id = pp.payment_method`;
+      FROM preorder_payments pp JOIN preorders po ON po.id = pp.preorder LEFT JOIN payment_methods m ON m.id = pp.payment_method
+     -- a deleted pre-order whose DP was fully refunded (nets to 0 per method) leaves Buku Kas; saldo is the same
+     WHERE NOT (po.deleted AND po.cancel_mode = 'refund' AND NOT EXISTS (SELECT 1 FROM preorder_payments x WHERE x.preorder = po.id
+       GROUP BY x.payment_method HAVING SUM(CASE x.kind WHEN 'refund' THEN -x.amount ELSE x.amount END) != 0))`;
 
   const p = { d1: q.from, d2: q.to };
   const opening = L.query(e.app,

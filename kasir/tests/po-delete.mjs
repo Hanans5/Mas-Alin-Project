@@ -26,7 +26,9 @@ await api(O, "POST", `/api/po/${a.id}/cancel`, { mode: "refund", method: tunai, 
 await api(O, "POST", `/api/po/${b.id}/cancel`, { mode: "hangus", reason: "uji" });
 const today = new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10), R = `from=${today}&to=${today}`;
 const stable = (v) => v && typeof v === "object" ? (Array.isArray(v) ? v.map(stable) : Object.fromEntries(Object.keys(v).sort().map((k) => [k, stable(v[k])]))) : v;
-const snap = async () => JSON.stringify(stable([(await api(O, "GET", `/api/reports/cashbook?${R}`)).body, (await api(O, "GET", `/api/reports/profit-loss?${R}`)).body]));
+const cbRows = async () => (await api(O, "GET", `/api/reports/cashbook?${R}`)).body;
+const snap = async () => { const cb = await cbRows(); return JSON.stringify(stable([cb.groups?.map((g) => [g.name, g.in, g.out]), cb.opening, cb.closing, (await api(O, "GET", `/api/reports/profit-loss?${R}`)).body])); };
+const refs = async () => JSON.stringify(await cbRows()).split(a.number).length - 1;
 const before = await snap(), stock0 = (await api(O, "GET", `/api/collections/products/records/${prod.id}`)).body.stock;
 check("kasir can't delete", (await api(T.kasir, "POST", `/api/po/${a.id}/delete`, { confirm: a.number })).status === 403);
 check("admin can't delete", (await api(T.admin, "POST", `/api/po/${a.id}/delete`, { confirm: a.number })).status === 403);
@@ -35,7 +37,8 @@ check("active (not BATAL) pre-order refused", (await api(O, "POST", `/api/po/${c
 check("owner deletes a refunded BATAL pre-order", (await api(O, "POST", `/api/po/${a.id}/delete`, { confirm: a.number })).status === 200);
 check("superadmin deletes a DP-hangus BATAL pre-order", (await api(T.superadmin, "POST", `/api/po/${b.id}/delete`, { confirm: b.number })).status === 200);
 check("deleting again → 404", (await api(O, "POST", `/api/po/${a.id}/delete`, { confirm: a.number })).status === 404);
-check("Buku Kas and Laba Rugi unchanged (DP, refund, DP hangus kept)", (await snap()) === before);
+check("Buku Kas totals and Laba Rugi unchanged (DP hangus kept)", (await snap()) === before);
+check("refunded deleted PO no longer listed in Buku Kas; DP-hangus PO still listed", (await refs()) === 0 && JSON.stringify(await cbRows()).includes(b.number));
 check("stock unchanged", (await api(O, "GET", `/api/collections/products/records/${prod.id}`)).body.stock === stock0);
 const listed = (await api(O, "GET", `/api/collections/preorders/records?perPage=200&filter=${encodeURIComponent(`deleted = false && (id = "${a.id}" || id = "${b.id}" || id = "${c.id}")`)}`)).body.items.map((x) => x.id);
 check("Pre-Order list (deleted = false) hides the two, keeps the active one", listed.length === 1 && listed[0] === c.id, listed);
