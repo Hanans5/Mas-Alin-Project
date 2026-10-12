@@ -143,3 +143,22 @@ routerAdd("POST", "/api/po/{id}/cancel", (e) => {
   });
   return e.json(200, P.full(e.app, e.request.pathValue("id")));
 }, $apis.requireAuth("users"));
+
+// POST /api/po/{id}/delete — remove a cancelled pre-order from the Pre-Order
+// list. Owner/superadmin, body { confirm: number } (the UI asks twice). The
+// record stays (deleted = true) so its DP / refund keep their place in Buku
+// Kas, Laba Rugi and Laporan; nothing about money or stock changes.
+routerAdd("POST", "/api/po/{id}/delete", (e) => {
+  const L = require(`${__hooks}/lib.js`);
+  L.requireRole(e, ["owner"]);
+  const confirm = String((e.requestInfo().body || {}).confirm || "").trim();
+  let po;
+  try { po = e.app.findRecordById("preorders", e.request.pathValue("id")); } catch (_) { throw new NotFoundError("Pre-order tidak ditemukan."); }
+  if (po.getBool("deleted")) throw new NotFoundError("Pre-order sudah dihapus.");
+  if (po.getString("status") !== "batal") throw new BadRequestError("Hanya pre-order yang sudah dibatalkan yang bisa dihapus.");
+  if (confirm !== po.getString("number")) throw new BadRequestError("Ketik nomor pre-order untuk konfirmasi.");
+  po.set("deleted", true); po.set("deleted_at", new Date().toISOString().replace("T", " ")); po.set("deleted_by", e.auth.id);
+  e.app.save(po);
+  e.app.logger().info("Pre-order batal dihapus", "number", po.getString("number"), "dp", po.getInt("dp"), "by", e.auth.id, "by_name", e.auth.getString("name") || e.auth.getString("username"));
+  return e.json(200, { ok: true, number: po.getString("number") });
+}, $apis.requireAuth("users"));

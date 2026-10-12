@@ -330,7 +330,7 @@ routerAdd("GET", "/api/reports/table", (e) => {
       C("dp", "DP", "rp"), C("sisa", "Sisa", "rp"), C("siap", "Perkiraan siap", "day"), C("status", "Status"), C("transaksi", "Transaksi")];
     rows = L.query(e.app, `SELECT po.created, po.number, COALESCE(NULLIF(u.name,''), u.username, '') AS pelanggan, COALESCE(u.phone,'') AS kontak,
         po.total, po.dp, CASE WHEN po.status IN ('selesai','batal') THEN 0 ELSE po.total - po.dp END AS sisa, COALESCE(po.ready_date,'') AS siap,
-        CASE WHEN po.status = 'batal' THEN 'batal (' || COALESCE(po.cancel_mode,'') || ')' ELSE po.status END AS status, COALESCE(s.number,'') AS transaksi
+        CASE WHEN po.status = 'batal' THEN 'batal (' || COALESCE(po.cancel_mode,'') || CASE WHEN po.deleted THEN ', dihapus' ELSE '' END || ')' ELSE po.status END AS status, COALESCE(s.number,'') AS transaksi
         FROM preorders po LEFT JOIN users u ON u.id = po.customer LEFT JOIN sales s ON s.id = po.sale
         WHERE po.created >= {:from} AND po.created < {:to} ORDER BY po.created`, r,
       { created: "", number: "", pelanggan: "", kontak: "", total: 0, dp: 0, sisa: 0, siap: "", status: "", transaksi: "" });

@@ -1,5 +1,10 @@
 # Nelin Batik kasir: changelog
 
+## 2026-10-12: Delete a cancelled pre-order
+- Owner and superadmin get a trash icon on BATAL rows in Pre-Order (and "Hapus pre-order" in a BATAL pre-order's detail). Two steps, like deleting a voided sale: "Hapus …?", then type the PO number.
+- `POST /api/po/{id}/delete` with `{ confirm: number }` marks the pre-order deleted (new fields `deleted`, `deleted_at`, `deleted_by`) and logs who did it. It leaves the Pre-Order list, but the record stays so its DP, refund or DP hangus keep their place in Buku Kas and Laba Rugi; Laporan Pre-Order shows it as "batal (…, dihapus)". Saldo, omzet and stock don't change. Only BATAL pre-orders.
+- Migration `1791250000_po_deleted`; test `tests/po-delete.mjs`.
+
 ## 2026-10-12: Pack products (own code, stock from the base product)
 - Produk → Ubah: **Produk pack dari** (the base product) + **Isi per pack**. A pack product has its own code, name and price (the price of one pack) and no stock of its own: the Kasir shows floor(base stock ÷ isi) packs, and its HPP is base HPP × isi. It's hidden from the online store, and Stok masuk/keluar/opname on it is refused (change the base instead).
 - Selling one (Kasir, Pre-Order, tukar) turns the line into a pack line of the base product at the pack product's price, so stock (isi pcs per pack), void, tukar/retur, reports, laba, struk and invoice all count the base in pcs. The Harga button is hidden on pack-product lines.

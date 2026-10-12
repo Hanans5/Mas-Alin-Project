@@ -1291,7 +1291,7 @@ async function poList(el) {
   el.querySelectorAll('[data-ps]').forEach(b => b.onclick = () => { PS.status = b.dataset.ps; poList(el); });
   let t; $('#poq').oninput = () => { clearTimeout(t); t = setTimeout(() => { PS.q = $('#poq').value; load(); }, 250); };
   const load = async () => {
-    const f = [PS.status === 'aktif' ? `(status = "menunggu" || status = "siap")` : PS.status === 'semua' ? '' : `status = ${pbq(PS.status)}`];
+    const f = ['deleted = false', PS.status === 'aktif' ? `(status = "menunggu" || status = "siap")` : PS.status === 'semua' ? '' : `status = ${pbq(PS.status)}`];
     const q = PS.q.trim();
     if (q) f.push(`(number ~ ${pbq(q)} || customer.name ~ ${pbq(q)} || customer.phone ~ ${pbq(q)} || customer.username ~ ${pbq(q)})`);
     try {
@@ -1305,13 +1305,16 @@ async function poList(el) {
       $('#porows').innerHTML = r.items.length ? r.items.map(x => {
         const [lbl, cls] = PO_STATUS[x.status] || [x.status, ''];
         const late = (x.status === 'menunggu') && x.ready_date && x.ready_date.slice(0, 10) < wibToday();
-        return `<button class="tx" data-po="${x.id}">
+        const del = isOwner() && x.status === 'batal';
+        return (del ? `<div class="txw">` : '') + `<button class="tx" data-po="${x.id}">
           <span><b class="num">${esc(x.number)}</b> <span class="badge ${cls}">${lbl}</span>${late ? ' <span class="badge bad">lewat tanggal</span>' : ''}</span>
           <b class="num">${rp(x.total)}</b>
           <small class="muted">${fmtTime(x.created)} · ${esc(x.expand?.customer?.name || x.expand?.customer?.username || '')}${x.ready_date ? ' · siap ' + fd(x.ready_date.slice(0, 10)) : ''}</small>
-          <small class="muted num">${x.status === 'menunggu' || x.status === 'siap' ? `DP ${rp(x.dp)} · sisa ${rp(x.total - x.dp)}` : `DP ${rp(x.dp)}`}</small></button>`;
+          <small class="muted num">${x.status === 'menunggu' || x.status === 'siap' ? `DP ${rp(x.dp)} · sisa ${rp(x.total - x.dp)}` : `DP ${rp(x.dp)}`}</small></button>`
+          + (del ? `<button class="txdel" data-podel="${x.id}" title="Hapus" aria-label="Hapus ${esc(x.number)}">${TRASH_SVG}</button></div>` : '');
       }).join('') : `<div class="empty">Belum ada pre-order${PS.status === 'aktif' ? ' aktif' : ''}.</div>`;
       $('#porows').querySelectorAll('[data-po]').forEach(b => b.onclick = () => poDetail(b.dataset.po, () => load()));
+      $('#porows').querySelectorAll('[data-podel]').forEach(b => b.onclick = () => openDeletePo(r.items.find(x => x.id === b.dataset.podel), load));
     } catch (e) { $('#porows').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
   };
   load();
@@ -1429,6 +1432,7 @@ async function poDetail(id, done) {
     ${c?.phone && open ? `<a class="btn block" style="margin-top:8px" target="_blank" rel="noopener" href="https://wa.me/${waNumber(c.phone)}?text=${encodeURIComponent(poText(r))}">WhatsApp ke ${esc(c.name || c.username)}</a>` : ''}
     ${po.expand?.sale ? `<button class="btn block" id="pdsale" style="margin-top:8px">Lihat transaksi ${esc(po.expand.sale.number)}</button>` : ''}
     ${open && isManager() ? `<button class="btn danger block" id="pdcancel" style="margin-top:8px">Batalkan pre-order</button>` : ''}
+    ${po.status === 'batal' && isOwner() && !po.deleted ? `<button class="btn danger block" id="pddel" style="margin-top:8px">Hapus pre-order</button>` : ''}
     <button class="btn block" id="pdclose" style="margin-top:8px">Tutup</button>`);
   const again = () => { done?.(); poDetail(id, done); };
   $('#pdclose').onclick = closeModal;
@@ -1437,6 +1441,7 @@ async function poDetail(id, done) {
   if ($('#pddp')) $('#pddp').onclick = () => poPay(po, 'dp', again);
   if ($('#pdpay')) $('#pdpay').onclick = () => poPay(po, 'complete', again);
   if ($('#pdcancel')) $('#pdcancel').onclick = () => poCancel(po, again);
+  if ($('#pddel')) $('#pddel').onclick = () => openDeletePo(po, () => done?.());
   if ($('#pdsale')) $('#pdsale').onclick = async () => {
     try {
       const sale = await api(`/api/collections/sales/records/${po.sale}?expand=customer,cashier,payment_method,ref_sale,employee,preorder`);
@@ -1965,6 +1970,35 @@ async function openInvoice(sale) {
     if (!confirm('Cabut link invoice ini? Link yang sudah dikirim tidak bisa dibuka lagi.')) return;
     try { await api(`/api/invoice/${sale.id}/revoke`, { method: 'POST' }); closeModal(); toast('Link invoice dicabut.'); }
     catch (e) { $('#ierr').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  };
+}
+
+// A cancelled pre-order leaves the list (two steps, like a voided sale). Its
+// DP stays in Buku Kas / Laba Rugi: the server only marks it deleted.
+function openDeletePo(po, after) {
+  const money = po.cancel_mode === 'hangus' ? `DP ${rp(po.dp)} tetap tercatat sebagai pendapatan (DP hangus) di Laba Rugi dan Buku Kas.` : po.dp ? `DP ${rp(po.dp)} dan pengembaliannya tetap tercatat di Buku Kas.` : '';
+  openModal(`
+    <h2>Hapus ${esc(po.number)}?</h2>
+    <div class="muted">Pre-order yang sudah dibatalkan ini hilang dari daftar Pre-Order. ${money} Saldo, omzet dan stok tidak berubah. <b>Tidak bisa dikembalikan.</b></div>
+    <div class="row" style="margin-top:16px"><button class="btn" id="dno">Jangan</button><button class="btn danger" id="dyes">Ya, lanjutkan</button></div>`);
+  $('#dno').onclick = closeModal;
+  $('#dyes').onclick = () => {
+    openModal(`
+      <h2>Konfirmasi terakhir</h2>
+      <div class="muted">Ketik nomor pre-order <b class="num">${esc(po.number)}</b> untuk menghapusnya.</div>
+      <input class="input" id="dnum" autocomplete="off" autocapitalize="characters" style="margin-top:10px" aria-label="Nomor pre-order">
+      <div id="derr"></div>
+      <div class="row" style="margin-top:16px"><button class="btn" id="dno2">Jangan</button><button class="btn danger" id="dgo" disabled>Hapus</button></div>`);
+    $('#dno2').onclick = closeModal;
+    $('#dnum').oninput = () => { $('#dgo').disabled = $('#dnum').value.trim().toUpperCase() !== po.number.toUpperCase(); };
+    $('#dgo').onclick = async () => {
+      $('#dgo').disabled = true;
+      try {
+        await api(`/api/po/${po.id}/delete`, { method: 'POST', body: { confirm: po.number } });
+        closeModal(); toast(`${po.number} dihapus.`); after?.();
+      } catch (e) { $('#derr').innerHTML = `<div class="err">${esc(e.message)}</div>`; $('#dgo').disabled = false; }
+    };
+    $('#dnum').focus();
   };
 }
 
