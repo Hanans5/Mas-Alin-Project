@@ -7,6 +7,7 @@ Banyurip Alit, Pekalongan. Two parts share one PocketBase database:
 |---|---|---|
 | [`kasir/`](kasir) | POS / kasir and back office: sales, stock, members and points, vouchers, debts, expenses, reports (Laporan, Laba Rugi, Buku Kas), online-order handling. PocketBase backend with JS hooks, plus a single-page web app. | https://nelin.necutbarber.shop |
 | [`toko-online/`](toko-online) | Public online store and home page: live stock, cart, checkout with courier estimates, QRIS/transfer with a unique code, proof upload, WhatsApp confirmation, order tracking. Plain HTML/CSS/JS. | https://toko-nelin.necutbarber.shop |
+| [`content-studio/`](content-studio) | AI Content Studio (new): agents plan, write and check social posts; owner approves; schedule, dashboard and REST API. Runs locally on the PC, separate from the kasir. | local: http://127.0.0.1:8095 |
 
 Read **[`toko-online/REPORT.md`](toko-online/REPORT.md)** first. It's the full
 handoff covering how everything runs, the order flow, roles, gotchas and next steps.
