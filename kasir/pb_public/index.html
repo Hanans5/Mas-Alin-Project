@@ -2389,13 +2389,28 @@ function rangePicker(el, state, onChange) {
     [state.from, state.to] = presetRange(b.dataset.p); state.preset = b.dataset.p;
     rangePicker(el, state, onChange); onChange();
   });
-  const custom = () => {
+  // Typed dates: the inputs stay as they are (rebuilding them while the day is
+  // being typed swallowed the 2nd digit: "21" became "02"). The chips update in
+  // place and the reload waits for a pause in typing, or Enter / leaving the field.
+  dateInputs([$('#rf', el), $('#rt', el)], () => {
     const f = $('#rf', el).value, t = $('#rt', el).value;
     if (!f || !t) return;
     state.from = f <= t ? f : t; state.to = f <= t ? t : f; state.preset = '';
-    rangePicker(el, state, onChange); onChange();
-  };
-  $('#rf', el).onchange = custom; $('#rt', el).onchange = custom;
+    el.querySelectorAll('[data-p]').forEach(b => b.classList.remove('on'));
+    onChange();
+  });
+}
+// Run apply() ~850 ms after the last change of any of these date inputs, or at
+// once on Enter / blur, so a half-typed date (day "2" of "21") never triggers it.
+const DATE_PAUSE = 850;
+function dateInputs(inputs, apply) {
+  let timer = null;
+  const run = () => { if (timer === null) return; clearTimeout(timer); timer = null; apply(); };
+  for (const i of inputs) {
+    i.onchange = () => { clearTimeout(timer); timer = setTimeout(run, DATE_PAUSE); };
+    i.onblur = run;
+    i.onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); if (timer === null) timer = 0; run(); } };
+  }
 }
 function subTabs(el, tabs, state, key, onChange) {
   el.innerHTML = `<div class="subtabs">${tabs.map(([k, l]) => `<button data-st="${k}" class="${state[key] === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
@@ -3207,7 +3222,7 @@ async function viewCustomer(u, back) {
     $('#cdcustom').classList.toggle('hidden', CS.preset !== 'custom');
     load();
   });
-  $('#cdf1').onchange = load; $('#cdf2').onchange = load;
+  dateInputs([$('#cdf1'), $('#cdf2')], load);
   load();
 }
 // Paying a bon from the pelanggan page: same route as Keuangan → Piutang.

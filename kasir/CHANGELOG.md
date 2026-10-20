@@ -1,5 +1,8 @@
 # Nelin Batik kasir: changelog
 
+## 2026-10-21: Typing a date in the period filter
+- Typing a date by keyboard in the period boxes (Transaksi, Laporan, Keuangan, Karyawan) lost the second digit of the day ("21" became "02"): the first digit already made a valid date, and the filter rebuilt the boxes, taking the focus away. The boxes now stay in place; only the period chips update, and the reload waits for a short pause in typing (or Enter / leaving the field). Picking from the calendar and the period chips work as before. The custom range on a pelanggan's page uses the same pause.
+
 ## 2026-10-12: Kasir shows full-size photos, kept on the device
 - The Kasir grid shows the original photos again (no `?thumb=`), at full quality. `sw.js` now keeps every `/api/files/products/…` file on the device (cache `nb-photos-v2`, the old thumbnail cache is deleted), so each photo is downloaded once per device. Registered as `/sw.js?v=2`: Cloudflare keeps `sw.js` for hours, so bump `?v=` whenever it changes.
 
