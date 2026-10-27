@@ -1,5 +1,8 @@
 # Nelin Batik kasir: changelog
 
+## 2026-10-27: Ringkasan error with custom pre-order items
+- Dasbor → Ringkasan showed "Something went wrong" for any period that included a picked-up pre-order with a custom item: those items have no product (no SKU), and the top-products query couldn't read the missing SKU. It now treats it as empty and lists each custom item by name. Totals for normal products are unchanged.
+
 ## 2026-10-21: Typing a date in the period filter
 - Typing a date by keyboard in the period boxes (Transaksi, Laporan, Keuangan, Karyawan) lost the second digit of the day ("21" became "02"): the first digit already made a valid date, and the filter rebuilt the boxes, taking the focus away. The boxes now stay in place; only the period chips update, and the reload waits for a short pause in typing (or Enter / leaving the field). Picking from the calendar and the period chips work as before. The custom range on a pelanggan's page uses the same pause.
 

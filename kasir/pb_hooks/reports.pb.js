@@ -72,9 +72,10 @@ routerAdd("GET", "/api/reports/sales", (e) => {
        FROM sales s WHERE ${live} GROUP BY day ORDER BY day`,
     r, { day: "", count: 0, subtotal: 0, discount: 0, total: 0 });
   const perProduct = L.query(e.app,
-    `SELECT i.name AS name, p.sku AS sku, SUM(i.qty) AS qty, SUM(i.subtotal) AS amount
+    // custom pre-order items have no product (no SKU): one row per name
+    `SELECT i.name AS name, COALESCE(p.sku, '') AS sku, SUM(i.qty) AS qty, SUM(i.subtotal) AS amount
        FROM sale_items i JOIN sales s ON s.id = i.sale LEFT JOIN products p ON p.id = i.product
-      WHERE ${live} GROUP BY i.product ORDER BY qty DESC`,
+      WHERE ${live} GROUP BY CASE WHEN i.product = '' THEN 'custom:' || i.name ELSE i.product END ORDER BY qty DESC`,
     r, { name: "", sku: "", qty: 0, amount: 0 });
   // Money kept at the till per method: payment rows, plus older sales' single method.
   const perMethod = L.query(e.app,
