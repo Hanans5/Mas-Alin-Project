@@ -1437,7 +1437,7 @@ function showPoSlip(r, fresh) {
   openModal(`<h2>${fresh ? '✓ Pre-order tersimpan' : 'Nota pre-order'}</h2>${poSlipHtml(r)}
     <div class="row"><button class="btn" id="psp">🖨 Cetak</button>${c?.phone ? `<a class="btn" target="_blank" rel="noopener" href="https://wa.me/${waNumber(c.phone)}?text=${encodeURIComponent(poText(r))}">WhatsApp</a>` : ''}</div>
     <button class="btn primary block" id="psd" style="margin-top:8px">Tutup</button>`);
-  $('#psp').onclick = () => { $('#print').innerHTML = poSlipHtml(r); printAs('receipt'); };
+  $('#psp').onclick = () => printPoSlip(r);
   $('#psd').onclick = closeModal;
 }
 async function poDetail(id, done) {
@@ -1458,7 +1458,7 @@ async function poDetail(id, done) {
     <button class="btn block" id="pdclose" style="margin-top:8px">Tutup</button>`);
   const again = () => { done?.(); poDetail(id, done); };
   $('#pdclose').onclick = closeModal;
-  $('#pdprint').onclick = () => { $('#print').innerHTML = poSlipHtml(r); printAs('receipt'); };
+  $('#pdprint').onclick = () => printPoSlip(r);
   if ($('#pdready')) $('#pdready').onclick = async () => { try { await api(`/api/po/${id}/ready`, { method: 'POST' }); toast('Ditandai siap diambil.'); again(); } catch (e) { toast(e.message, true); } };
   if ($('#pddp')) $('#pddp').onclick = () => poPay(po, 'dp', again);
   if ($('#pdpay')) $('#pdpay').onclick = () => poPay(po, 'complete', again);
@@ -1608,8 +1608,10 @@ async function escposLogo() {
   escLogo = { src: S.logoData, bytes: out };
   return out;
 }
-async function escposReceipt(sale, items, pays) {
-  const st = S.settings, x = sale.expand || {}, n = v => v.toLocaleString('id-ID');
+// ESC/POS writer shared by the struk and the pre-order nota: logo, store name and
+// header on top, then the caller's lines; bytes() ends with the footer and feed.
+async function escposDoc() {
+  const st = S.settings;
   const b = [0x1b, 0x40]; // reset
   const raw = (...v) => b.push(...v);
   const text = s => { for (const ch of asciiOnly(s)) b.push(ch.charCodeAt(0)); };
@@ -1639,6 +1641,16 @@ async function escposReceipt(sale, items, pays) {
   const head = st.receipt_header || st.address || '';
   if (head) wrap(head).forEach(l => line(l));
   align(0); sep();
+  const bytes = () => {
+    if (st.receipt_footer) { align(1); wrap(st.receipt_footer).forEach(l => line(l)); align(0); }
+    raw(0x1b, 0x64, 4); // feed 4 lines so the struk clears the tear bar
+    return new Uint8Array(b);
+  };
+  return { raw, line, align, bold, wrap, lr, sep, size, bytes };
+}
+async function escposReceipt(sale, items, pays) {
+  const x = sale.expand || {}, n = v => v.toLocaleString('id-ID');
+  const { line, align, bold, wrap, lr, sep, size, bytes } = await escposDoc();
   line(sale.number);
   wrap(`${fmtTime(sale.created)} - ${cashierLabel(x.cashier)}`).forEach(l => line(l));
   wrap('Staf: ' + (x.employee ? x.employee.name : 'Toko')).forEach(l => line(l));
@@ -1659,9 +1671,38 @@ async function escposReceipt(sale, items, pays) {
   if (sale.total > sale.paid) { bold(1); line(lr(sale.status === 'piutang' ? 'SISA BON' : 'BON (sudah lunas)', n(sale.total - sale.paid))); bold(0); }
   if (sale.status === 'batal') { align(1); bold(1); line('*** DIBATALKAN ***'); bold(0); align(0); }
   sep();
-  if (st.receipt_footer) { align(1); wrap(st.receipt_footer).forEach(l => line(l)); align(0); }
-  raw(0x1b, 0x64, 4); // feed 4 lines so the struk clears the tear bar
-  return new Uint8Array(b);
+  return bytes();
+}
+// The pre-order nota as ESC/POS, same content as poSlipHtml().
+async function escposPoSlip(r) {
+  const po = r.preorder, x = po.expand || {}, n = v => Number(v || 0).toLocaleString('id-ID');
+  const items = Array.isArray(po.items) ? po.items : [];
+  const dps = r.payments.filter(p => p.kind === 'dp'), back = r.payments.filter(p => p.kind === 'refund');
+  const { line, align, bold, wrap, lr, sep, bytes } = await escposDoc();
+  align(1); bold(1); line('NOTA PRE-ORDER'); bold(0); align(0);
+  line(po.number);
+  wrap(`${fmtTime(po.created)} - ${cashierLabel(x.cashier)}`).forEach(l => line(l));
+  wrap('Staf: ' + (x.employee ? x.employee.name : 'Toko')).forEach(l => line(l));
+  if (x.customer && !isWalkin(x.customer)) wrap('Member: ' + (x.customer.name || x.customer.username)).forEach(l => line(l));
+  if (po.ready_date) line('Perkiraan siap: ' + fd(po.ready_date.slice(0, 10)));
+  sep();
+  for (const i of items) {
+    wrap(i.name + (i.tier === 'custom' ? ' (custom)' : TIER_NOTE[i.tier] ? ` (${TIER_NOTE[i.tier]})` : '')).forEach(l => line(l));
+    line(lr(`  ${itemQty(i, n)}`, n(i.subtotal)));
+  }
+  sep();
+  if (po.discount) line(lr('Diskon', '-' + n(po.discount)));
+  bold(1); line(lr('TOTAL', n(po.total))); bold(0);
+  for (const p of dps) line(lr(`DP ${p.expand?.payment_method?.name || ''} ${fmtTime(p.created).split(',')[0]}`, n(p.amount)));
+  if (po.status === 'batal') {
+    bold(1); line(lr(po.cancel_mode === 'refund' ? 'DP DIKEMBALIKAN' : 'DP HANGUS', n(back.reduce((a, p) => a + p.amount, 0) || po.dp)));
+    align(1); line('*** DIBATALKAN ***'); align(0); bold(0);
+  } else if (po.status === 'selesai') { align(1); bold(1); line('LUNAS - diambil'); bold(0); align(0); }
+  else { bold(1); line(lr('SISA', n(po.total - po.dp))); bold(0); }
+  if (po.note) { sep(); wrap('Catatan: ' + po.note).forEach(l => line(l)); }
+  sep();
+  align(1); wrap('Simpan nota ini untuk mengambil pesanan.').forEach(l => line(l)); align(0);
+  return bytes();
 }
 // Hands the bytes to RawBT (Android). The intent form opens the Play Store
 // page when RawBT isn't installed yet.
@@ -1740,6 +1781,23 @@ async function serialSend(bytes) {
     try { await serialWrite(bytes); }
     catch (e2) { await serialReset(); throw e2; }
   }
+}
+// The pre-order nota goes to the same printer as the struk (COM port / RawBT /
+// print window). It used to always open the print window, and on Android that
+// sent it through RawBT's print service, which stamps its trial notice on it.
+async function printPoSlip(r) {
+  if (POSP.printMode === 'serial') {
+    try { await sendSerial(await escposPoSlip(r)); }
+    catch (e) { toast('Gagal mencetak: ' + e.message, true); }
+    return;
+  }
+  if (POSP.printMode === 'rawbt') {
+    try { sendRawBT(await escposPoSlip(r)); }
+    catch (e) { toast('Gagal menyiapkan nota untuk printer Bluetooth: ' + e.message, true); }
+    return;
+  }
+  $('#print').innerHTML = poSlipHtml(r);
+  printAs('receipt');
 }
 async function printReceipt(sale, items, pays) {
   if (POSP.printMode === 'serial') {

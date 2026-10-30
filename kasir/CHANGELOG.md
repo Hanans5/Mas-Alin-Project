@@ -1,5 +1,8 @@
 # Nelin Batik kasir: changelog
 
+## 2026-10-31: Pre-Order nota prints like the struk
+- The Pre-Order nota always opened the print window; on Android that went through the RawBT print service, whose free version stamps a trial notice ("masa percobaan") on the paper. It now goes to the printer chosen in 🖨 Printer (RawBT / port COM / print window) as ESC/POS, like the struk, with the same content as the on-screen nota. The struk's ESC/POS output is unchanged (the two now share one writer).
+
 ## 2026-10-27: Ringkasan error with custom pre-order items
 - Dasbor → Ringkasan showed "Something went wrong" for any period that included a picked-up pre-order with a custom item: those items have no product (no SKU), and the top-products query couldn't read the missing SKU. It now treats it as empty and lists each custom item by name. Totals for normal products are unchanged.
 
