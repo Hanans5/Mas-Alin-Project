@@ -237,6 +237,13 @@ h3.sec{margin:18px 0 8px;font-size:15px}
 .side-nav button{display:flex;align-items:center;gap:10px;border:0;background:transparent;text-align:left;padding:7px 10px;border-radius:8px;font-weight:600;color:var(--muted);min-height:36px}
 .side-nav button:hover{background:var(--bg);color:var(--ink)}
 .side-nav button.on{background:var(--accent-soft);color:var(--accent)}
+/* Perangkat (Printer, + and Pasang aplikasi): pinned above the user so it never scrolls away */
+.side-nav.side-dev{flex:0 0 auto;overflow:visible;grid-template-columns:minmax(0,1fr);padding:6px 10px;border-top:1px solid var(--nav-line)}
+.side-row{display:flex;gap:2px;align-items:stretch}
+.side-row>button:first-child{flex:1 1 auto;min-width:0;overflow:hidden}
+.side-row>button:first-child>span{min-width:0;overflow:hidden}
+.side-row .pname{display:block;font-size:11px;font-weight:500;opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.side-nav .side-add{flex:0 0 40px;justify-content:center;padding:0;font-size:22px;font-weight:700;line-height:1}
 .side-nav .ni{flex:0 0 auto}
 .side-group{font-size:12px;font-weight:700;color:var(--muted);padding:12px 10px 3px}
 .side-foot{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-top:1px solid var(--line)}
@@ -587,6 +594,7 @@ const brandHtml = store => S.logoData ? `<img class="brand-logo" src="${S.logoDa
 // Setting). Each item opens its page directly. Which views a role may open
 // still comes from TABS; the server enforces the same rules.
 const NAV_ICON = {
+  printer: '<path d="M7 8V3h10v5"/><rect x="3" y="8" width="18" height="9" rx="2"/><path d="M7 14h10v7H7z"/>',
   install: '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v3h16v-3"/>',
   dash: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
   pos: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
@@ -707,7 +715,8 @@ function renderShell() {
   <div class="shell" data-nav="${navMode()}">
     <aside class="side" aria-label="Menu">
       <div class="side-brand">${brandHtml(store)}</div>
-      <nav class="side-nav">${side}<button data-install hidden>${icon('install')}<span>Pasang aplikasi</span></button></nav>
+      <nav class="side-nav">${side}</nav>
+      <div class="side-nav side-dev" aria-label="Perangkat">${role() === 'pelanggan' ? '' : `<div class="side-row"><button data-printer>${icon('printer')}<span>Printer<small class="pname" data-printer-name></small></span></button><button class="side-add" data-printer-add aria-label="Tambah printer" title="Tambah printer">+</button></div>`}<button data-install hidden>${icon('install')}<span>Pasang aplikasi</span></button></div>
       <div class="side-foot">${who}<button class="btn ghost sm" data-out>Keluar</button></div>
     </aside>
     <div class="side-scrim" id="scrim"></div>
@@ -716,6 +725,7 @@ function renderShell() {
         <button class="btn ghost sm menu-btn" id="menuBtn" aria-label="Buka menu">☰</button>
         <div class="brand">${brandHtml(store)}</div>
         <nav class="nav">${topItems().map(i => `<button data-nav="${i.key}">${esc(i.label)}${i.key === 'po' ? ' <span class="beta">Beta</span>' : ''}</button>`).join('')}</nav>
+        ${role() === 'pelanggan' ? '' : '<button class="btn ghost sm" data-printer>🖨 Printer</button><button class="btn ghost sm" data-printer-add aria-label="Tambah printer" title="Tambah printer">+</button>'}
         <button class="btn ghost sm" data-install hidden>⬇ Pasang aplikasi</button>
         ${who}<button class="btn ghost sm" data-out>Keluar</button>
       </header>
@@ -729,7 +739,40 @@ function renderShell() {
   $('#scrim').onclick = () => $('.shell').classList.remove('open');
   $('.top .nav').scrollLeft = keep.top; $('.side .side-nav').scrollTop = keep.side;
   syncNav(); syncInstall();
+  document.querySelectorAll('[data-printer]').forEach(b => b.onclick = openPrinter);
+  document.querySelectorAll('[data-printer-add]').forEach(b => b.onclick = addPrinter);
+  syncPrinter();
   ({ dash: viewDash, pos: viewPOS, po: viewPO, emp: viewEmpPerf, tx: viewTx, online: viewOnline, ship: viewShip, prod: viewProducts, stock: viewStock, fin: viewFinance, rep: viewReports, users: viewUsers, set: viewSettings, me: viewMe })[S.tab]();
+}
+
+// ── printer in the menu ──
+// Printer (side menu "Perangkat", top bar) opens the per-device printer
+// settings; + adds a printer straight away: Chrome's Bluetooth list (or the
+// port list in serial mode). A device still on the print window switches to
+// Printer Bluetooth (langsung) when a printer is added.
+function printerLabel() {
+  const m = POSP.printMode;
+  return m === 'ble' ? (bleDev?.name || POSP.bleName || 'Bluetooth, belum ada printer') + (bleDev?.gatt.connected ? ' · tersambung' : '')
+    : m === 'serial' ? 'Port serial' : m === 'rawbt' ? 'RawBT' : 'Jendela cetak';
+}
+const syncPrinter = () => document.querySelectorAll('[data-printer-name]').forEach(el => el.textContent = printerLabel());
+function openPrinter() {
+  $('.shell')?.classList.remove('open');
+  openModal(`<h2>Printer struk</h2><div id="prcard"></div><button class="btn primary block" id="prclose" style="margin-top:14px">Selesai</button>`);
+  printerCard($('#prcard'));
+  $('#prcard > label.f')?.remove(); // the dialog title already says it
+  $('#prclose').onclick = () => { closeModal(); syncPrinter(); };
+}
+async function addPrinter() {
+  if (!['ble', 'serial'].includes(POSP.printMode)) {
+    if (!hasBle() && !hasSerial()) return openPrinter(); // explains which browser can
+    POSP.printMode = hasBle() ? 'ble' : 'serial'; savePOSP();
+  }
+  try {
+    const d = POSP.printMode === 'ble' ? await bleConnect() : await serialConnect();
+    toast(`Printer ${POSP.printMode === 'ble' ? (d.name || POSP.bleName) + ' ' : ''}tersambung. Struk langsung dicetak ke printer ini.`);
+  } catch (e) { if (e.name !== 'NotFoundError') toast('Gagal menyambungkan: ' + e.message, true); }
+  syncPrinter();
 }
 
 // ── install as an app ──
@@ -818,7 +861,6 @@ async function viewPOS() {
       <div class="pos-tools">
         <button class="tool ${POSP.images ? 'on' : ''}" id="tImg" aria-pressed="${POSP.images}">Gambar</button>
         <button class="tool" id="tFull">Layar penuh</button>
-        <button class="tool" id="tPrinter">🖨 Printer</button>
       </div>
       <div class="chips" id="chips"></div>
       <div class="grid" id="grid"></div>
@@ -833,12 +875,6 @@ async function viewPOS() {
   const full = () => { $('#tFull').textContent = document.fullscreenElement ? 'Keluar layar penuh' : 'Layar penuh'; };
   $('#tFull').onclick = () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.())?.catch?.(() => toast('Layar penuh tidak didukung di perangkat ini.', true));
   document.onfullscreenchange = full; full();
-  $('#tPrinter').onclick = () => {
-    openModal(`<h2>Printer struk</h2><div id="prcard"></div><button class="btn primary block" id="prclose" style="margin-top:14px">Selesai</button>`);
-    printerCard($('#prcard'));
-    $('#prcard > label.f')?.remove(); // the dialog title already says it
-    $('#prclose').onclick = closeModal;
-  };
   // A barcode scanner types the code and presses Enter: exact SKU/barcode
   // match goes straight into the cart; otherwise a single search hit does.
   q.onkeydown = ev => {
@@ -1858,9 +1894,24 @@ async function bleFindChar(dev) {
 }
 // Pick a printer in Chrome's list (needs a tap). The device is kept only when
 // it turns out to be a receipt printer; otherwise the old one stays.
+// Bluetooth access on the phone: Chrome holds Android's "Perangkat di sekitar"
+// (Nearby devices) permission and asks for it on the first requestDevice; the
+// printer list also offers to switch Bluetooth on. When that was refused or
+// the phone has no Bluetooth, say where to allow it instead of Chrome's English.
+const BLE_ALLOW = 'Izinkan Chrome memakai Bluetooth: nyalakan Bluetooth di HP / tablet, lalu buka Setelan → Aplikasi → Chrome → Izin → <b>Perangkat di sekitar</b> → Izinkan (Android lama: izin <b>Lokasi</b>). Setelah itu ketuk + lagi.';
+const bleAvailable = async () => { try { return navigator.bluetooth?.getAvailability ? await navigator.bluetooth.getAvailability() : hasBle(); } catch (_) { return hasBle(); } };
+async function bleRequest() {
+  if (!hasBle()) throw new Error('Browser ini tidak mendukung Bluetooth. Buka aplikasi kasir di Chrome (Android / PC).');
+  if (!await bleAvailable()) throw Object.assign(new Error('Bluetooth HP tidak tersedia. ' + BLE_ALLOW.replace(/<\/?b>/g, '')), { allow: true });
+  try { return await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: BLE_SERVICES }); }
+  catch (e) {
+    if (e.name === 'NotFoundError' && !/cancel/i.test(e.message) && /adapter|bluetooth|permission/i.test(e.message)) throw Object.assign(new Error('Bluetooth HP mati atau belum diizinkan. ' + BLE_ALLOW.replace(/<\/?b>/g, '')), { allow: true });
+    if (e.name === 'SecurityError' || e.name === 'NotAllowedError') throw Object.assign(new Error('Akses Bluetooth ditolak. ' + BLE_ALLOW.replace(/<\/?b>/g, '')), { allow: true });
+    throw e; // NotFoundError "User cancelled": nothing picked
+  }
+}
 async function bleConnect() {
-  if (!hasBle()) throw new Error('Browser ini tidak mendukung Bluetooth. Pakai Chrome di tablet Android atau PC.');
-  const dev = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: BLE_SERVICES });
+  const dev = await bleRequest();
   const c = await bleFindChar(dev);
   if (!c) throw new Error(`${dev.name || 'Perangkat ini'} tidak dikenali sebagai printer struk Bluetooth. Pilih nama printernya, atau pakai mode "Printer Bluetooth / USB (port serial)".`);
   if (bleDev && bleDev !== dev) { try { bleDev.gatt.disconnect(); } catch (_) {} }
@@ -1997,6 +2048,7 @@ function printerCard(el) {
     </div>
     ${!hasBle() && !hasSerial() ? '<p class="muted sm" style="margin:8px 0 0">Browser ini tidak bisa menyambung ke printer. Buka aplikasi kasir ini di <b>Chrome</b> (Android / PC) untuk mencetak lewat Bluetooth.</p>' : ''}
     <div class="row" style="margin-top:12px" id="prser"><button type="button" class="btn" id="prconn">🔌 Sambungkan printer</button><span class="muted sm" id="prstat" style="align-self:center"></span></div>
+    <p class="muted sm" id="prbt" style="margin:8px 0 0"></p>
     <div id="prpkt" style="margin-top:12px"><label class="f" style="margin-top:0" for="prpk">Kecepatan kirim Bluetooth</label>
       <select class="input" id="prpk"><option value="cepat" ${POSP.blePacket !== 'aman' ? 'selected' : ''}>Cepat (kebanyakan printer)</option><option value="aman" ${POSP.blePacket === 'aman' ? 'selected' : ''}>Aman, lebih lambat (kalau Cetak uji keluar acak atau terpotong)</option></select></div>
     <label style="display:flex;gap:10px;align-items:center;margin-top:14px;font-weight:600"><input type="checkbox" id="prauto" ${POSP.autoPrint ? 'checked' : ''}> Cetak struk otomatis setelah bayar</label>
@@ -2006,6 +2058,8 @@ function printerCard(el) {
     const m = POSP.printMode;
     $('#prser', el).style.display = m === 'serial' || m === 'ble' ? '' : 'none';
     $('#prpkt', el).style.display = m === 'ble' ? '' : 'none';
+    $('#prbt', el).style.display = m === 'ble' ? '' : 'none';
+    if (m === 'ble') bleAvailable().then(ok => { $('#prbt', el).innerHTML = ok ? 'Bluetooth HP: siap. Saat pertama menyambung, Chrome minta izin <b>Perangkat di sekitar</b>: pilih <b>Izinkan</b>.' : 'Bluetooth HP: <b>tidak tersedia</b>. ' + BLE_ALLOW; });
     if (m === 'ble') {
       $('#prstat', el).textContent = !hasBle() ? 'Browser ini tidak mendukung Bluetooth. Pakai Chrome.'
         : bleDev?.gatt.connected ? `Tersambung: ${bleDev.name || POSP.bleName}.`
