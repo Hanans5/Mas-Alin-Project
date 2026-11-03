@@ -729,9 +729,7 @@ function renderShell() {
       <header class="top">
         <button class="btn ghost sm menu-btn" id="menuBtn" aria-label="Buka menu">☰</button>
         <div class="brand">${brandHtml(store)}</div>
-        <nav class="nav">${topItems().map(i => `<button data-nav="${i.key}">${esc(i.label)}${i.key === 'po' ? ' <span class="beta">Beta</span>' : ''}</button>`).join('')}</nav>
-        ${role() === 'pelanggan' ? '' : '<button class="btn ghost sm" data-printer>🖨 Printer</button><button class="btn ghost sm" data-printer-add aria-label="Tambah printer" title="Tambah printer">+</button>'}
-        <button class="btn ghost sm" data-install hidden>⬇ Pasang aplikasi</button>
+        <nav class="nav">${topItems().map(i => `<button data-nav="${i.key}">${esc(i.label)}${i.key === 'po' ? ' <span class="beta">Beta</span>' : ''}</button>`).join('')}${role() === 'pelanggan' ? '' : '<button data-printer>Printer</button>'}<button data-install hidden>Pasang aplikasi</button></nav>
         ${who}<button class="btn ghost sm" data-out>Keluar</button>
       </header>
       <main id="view"></main>

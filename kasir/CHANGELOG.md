@@ -2,6 +2,7 @@
 
 ## 2026-11-03: Printer in the menu, + to add a printer, Bluetooth access help
 - **Printer** moved from the Kasir screen into the menu: a pinned "Perangkat" block at the bottom of the side menu (Printer with the current printer under it, **+**, Pasang aplikasi), or 🖨 Printer and + in the top bar. Printer opens the per-device printer settings; **+** adds a printer at once (Chrome's Bluetooth list, or the port list in serial mode; a device on the print window switches to Printer Bluetooth (langsung)).
+- The top bar itself has no Printer / + / install buttons (they crowded the phone header): side menu and ☰ menu have the Perangkat block; the top-tab layout has Printer and Pasang aplikasi as the last tabs.
 - **Login page:** "⬇ Pasang aplikasi" under Masuk (when Chrome offers it), so the kasir can be installed before logging in.
 - **Bluetooth access on the phone:** Chrome holds Android's "Perangkat di sekitar" permission and asks on the first connect. When Bluetooth is off/unavailable or access was refused, the app says where to allow it (Setelan → Aplikasi → Chrome → Izin → Perangkat di sekitar; Lokasi on old Android) instead of Chrome's English; a cancelled list says nothing. The printer card shows "Bluetooth HP: siap / tidak tersedia".
 
