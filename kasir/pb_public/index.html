@@ -536,8 +536,13 @@ function renderLogin(err) {
       <input class="input" id="lp" type="password" autocomplete="current-password" required>
       ${err ? `<div class="err">${esc(err)}</div>` : ''}
       <button class="btn primary block" id="lb">Masuk</button>
+      <div data-install-box hidden>
+        <button type="button" class="btn block" data-install style="margin-top:10px">⬇ Pasang aplikasi</button>
+        <div class="muted sm" style="margin-top:6px;text-align:center">Kasir terbuka dari ikon di layar utama, layar penuh.</div>
+      </div>
     </form>
   </div>`;
+  syncInstall();
   $('#lu').focus();
   $('#lf').onsubmit = async ev => {
     ev.preventDefault();
@@ -782,7 +787,9 @@ async function addPrinter() {
 let installEv = null;
 const isInstalled = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 function syncInstall() {
-  document.querySelectorAll('[data-install]').forEach(b => { b.hidden = !installEv || isInstalled(); b.onclick = installApp; });
+  const off = !installEv || isInstalled();
+  document.querySelectorAll('[data-install]').forEach(b => { b.hidden = off; b.onclick = installApp; });
+  document.querySelectorAll('[data-install-box]').forEach(b => { b.hidden = off; });
 }
 async function installApp() {
   const e = installEv;
