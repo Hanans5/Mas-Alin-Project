@@ -1,5 +1,11 @@
 # Nelin Batik kasir: changelog
 
+## 2026-11-03: Install as an app, Bluetooth printing without RawBT, struk looks like the print window again
+- **Install:** `manifest.json` (+ `icons/`, made from the struk logo) and the existing `sw.js` make the kasir installable in Chrome / Edge ("Pasang aplikasi" in the menu when the browser offers it). The app icon has shortcuts to Kasir, Pre-Order and Transaksi (`#/buka/{menu}`, ignored for menus the login can't open). The manifest link is versioned (`?v=1`): bump it when the manifest changes.
+- **Printer Bluetooth (langsung):** Web Bluetooth (BLE) straight from the app, no extra app. Known printer data characteristics are tried first (18f0/2af1, ff00/ff02, ffe0/ffe1, ae30/ae01, ff80/ff82, e7810a71…, 49535343…), the WeChat fee7 service last; the one that works is remembered (`POSP.bleChar`). Packets: "Cepat" 180 bytes or "Aman" 20 bytes per device. Stable Chrome forgets the printer when the app is reopened, so a print started by a tap opens the printer list by itself. One print at a time; a print is retried once only if nothing reached the printer yet (BLE and serial), so a half struk is never followed by a full one.
+- **Printer Bluetooth / USB (port serial):** the old COM-port mode, now also offered on Android Chrome (Bluetooth classic printers). **RawBT** is no longer offered; a device still set to it keeps working until another mode is picked.
+- **Struk / nota layout (Quintan, 2026-11-03):** direct prints (Bluetooth, serial, RawBT) send a picture of `receiptHtml` / `poSlipHtml` as laid out by the 58 mm print window (11 px monospace, small store name), like the RawBT prints of October, instead of the printer's big built-in font that the 2026-10-31 nota change brought. `escposPicture` draws the HTML at 204 px, scales to 384 dots, sends GS v 0 bands of 128 rows; `escposReceipt` / `escposPoSlip` (text) stay as the fallback.
+
 ## 2026-10-31: Pre-Order nota prints like the struk
 - The Pre-Order nota always opened the print window; on Android that went through the RawBT print service, whose free version stamps a trial notice ("masa percobaan") on the paper. It now goes to the printer chosen in 🖨 Printer (RawBT / port COM / print window) as ESC/POS, like the struk, with the same content as the on-screen nota. The struk's ESC/POS output is unchanged (the two now share one writer).
 

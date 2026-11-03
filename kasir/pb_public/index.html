@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#4a0404">
+<link rel="manifest" href="/manifest.json?v=1">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="Nelin Kasir">
 <title>Nelin Batik</title>
 <script>try{var t=localStorage.getItem('nb_theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(_){}</script>
 <style>
@@ -34,6 +38,7 @@
   --shadow:none;
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{margin:0;height:100%}
 body{background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -582,6 +587,7 @@ const brandHtml = store => S.logoData ? `<img class="brand-logo" src="${S.logoDa
 // Setting). Each item opens its page directly. Which views a role may open
 // still comes from TABS; the server enforces the same rules.
 const NAV_ICON = {
+  install: '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v3h16v-3"/>',
   dash: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
   pos: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
   tx: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
@@ -701,7 +707,7 @@ function renderShell() {
   <div class="shell" data-nav="${navMode()}">
     <aside class="side" aria-label="Menu">
       <div class="side-brand">${brandHtml(store)}</div>
-      <nav class="side-nav">${side}</nav>
+      <nav class="side-nav">${side}<button data-install hidden>${icon('install')}<span>Pasang aplikasi</span></button></nav>
       <div class="side-foot">${who}<button class="btn ghost sm" data-out>Keluar</button></div>
     </aside>
     <div class="side-scrim" id="scrim"></div>
@@ -710,6 +716,7 @@ function renderShell() {
         <button class="btn ghost sm menu-btn" id="menuBtn" aria-label="Buka menu">☰</button>
         <div class="brand">${brandHtml(store)}</div>
         <nav class="nav">${topItems().map(i => `<button data-nav="${i.key}">${esc(i.label)}${i.key === 'po' ? ' <span class="beta">Beta</span>' : ''}</button>`).join('')}</nav>
+        <button class="btn ghost sm" data-install hidden>⬇ Pasang aplikasi</button>
         ${who}<button class="btn ghost sm" data-out>Keluar</button>
       </header>
       <main id="view"></main>
@@ -721,9 +728,27 @@ function renderShell() {
   $('#menuBtn').onclick = () => $('.shell').classList.add('open');
   $('#scrim').onclick = () => $('.shell').classList.remove('open');
   $('.top .nav').scrollLeft = keep.top; $('.side .side-nav').scrollTop = keep.side;
-  syncNav();
+  syncNav(); syncInstall();
   ({ dash: viewDash, pos: viewPOS, po: viewPO, emp: viewEmpPerf, tx: viewTx, online: viewOnline, ship: viewShip, prod: viewProducts, stock: viewStock, fin: viewFinance, rep: viewReports, users: viewUsers, set: viewSettings, me: viewMe })[S.tab]();
 }
+
+// ── install as an app ──
+// Chrome / Edge offer "Pasang aplikasi" (manifest.json + sw.js): the
+// kasir then opens from its own icon, full screen, with shortcuts to Kasir,
+// Pre-Order and Transaksi on a long press of the icon.
+let installEv = null;
+const isInstalled = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+function syncInstall() {
+  document.querySelectorAll('[data-install]').forEach(b => { b.hidden = !installEv || isInstalled(); b.onclick = installApp; });
+}
+async function installApp() {
+  const e = installEv;
+  if (!e) return;
+  installEv = null; syncInstall(); // a prompt can be used once
+  await e.prompt();
+}
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEv = e; syncInstall(); });
+window.addEventListener('appinstalled', () => { installEv = null; syncInstall(); toast('Aplikasi kasir terpasang. Buka dari ikon Nelin Kasir.'); });
 
 // ── POS ─────────────────────────────────────────────
 async function loadCatalog() {
@@ -1579,7 +1604,10 @@ function receiptText(sale, items, pays) {
 //            printer's driver; Chrome started with --kiosk-printing skips the window)
 //   serial:  ESC/POS bytes straight to a COM port through Web Serial (Chrome /
 //            Edge on a PC; Bluetooth printers such as the Rongta RPP02N)
-//   rawbt:   ESC/POS bytes handed to the RawBT app on Android
+//   ble:     ESC/POS bytes straight to a Bluetooth (BLE) printer through Web
+//            Bluetooth (Chrome on Android tablets / PC), no extra app
+//   rawbt:   old: ESC/POS handed to the RawBT app; no longer offered, a device
+//            still set to it keeps working until another mode is picked
 // escposReceipt mirrors receiptHtml line for line; change both together.
 const ESC_COLS = 32;   // characters per line on a 58 mm roll (font A)
 const ESC_DOTS = 384;  // printable dots per line
@@ -1740,7 +1768,7 @@ function sendSerial(bytes) {
   return job;
 }
 async function serialOpen() {
-  if (!hasSerial()) throw new Error('Browser ini tidak mendukung printer serial. Pakai Chrome atau Edge di PC.');
+  if (!hasSerial()) throw new Error('Browser ini tidak mendukung printer serial. Pakai Chrome atau Edge versi baru (PC atau Android).');
   if (!serialPort) serialPort = (await navigator.serial.getPorts())[0] || null;
   if (!serialPort) throw new Error('Printer belum disambungkan. Buka 🖨 Printer → Sambungkan printer.');
   if (!serialPort.writable) {
@@ -1765,6 +1793,7 @@ async function serialWrite(bytes) {
     await Promise.race([w.write(bytes), new Promise((_, no) => { timer = setTimeout(() => no(new Error('Printer tidak merespons (mati atau di luar jangkauan Bluetooth?).')), SERIAL_TIMEOUT); })]);
   } catch (e) {
     try { settle(w.abort()); } catch (_) {}
+    e.partial = true; // the write had started: part of the struk may be out
     throw e;
   } finally {
     clearTimeout(timer);
@@ -1775,77 +1804,238 @@ async function serialWrite(bytes) {
 async function serialSend(bytes) {
   try { await serialWrite(bytes); }
   catch (e) {
-    // one retry on a fresh port; not after a timeout (the printer may have printed part of it)
+    // one retry on a fresh port, only when nothing was sent yet (else: a half struk twice)
     await serialReset();
-    if (/tidak merespons/.test(e.message)) throw e;
+    if (e.partial) throw e;
     try { await serialWrite(bytes); }
     catch (e2) { await serialReset(); throw e2; }
   }
+}
+// Web Bluetooth: ESC/POS straight to a BLE thermal printer from the browser
+// (Chrome / Edge on Android, Windows, Mac; not iPhone/iPad), no extra app.
+// The first connect needs a tap (Sambungkan printer). Stable Chrome forgets
+// the printer when the app is reopened (getDevices() is still behind a flag),
+// so a print started by a tap (Cetak, Bayar with auto-print) opens the
+// printer list itself when no printer is connected yet.
+const BLE_UUID = s => s.length === 4 ? `0000${s}-0000-1000-8000-00805f9b34fb` : s;
+// Known (service, data characteristic) pairs of receipt printers, tried first:
+// a printer may expose other writable characteristics that print nothing.
+const BLE_PREFER = [
+  ['18f0', '2af1'], ['ff00', 'ff02'], ['ffe0', 'ffe1'], ['ae30', 'ae01'], ['ff80', 'ff82'],
+  ['e7810a71-73ae-499d-8c15-faa9aef0c3f2', 'bef8d6c9-9c21-4c9e-b632-bd58c1009f9f'],
+  ['49535343-fe7d-4ae5-8fa9-9fafd205e455', '49535343-8841-43f4-a8d4-ecbe34729bb3'],
+].map(([s, c]) => [BLE_UUID(s), BLE_UUID(c)]);
+const BLE_SERVICES = [...new Set([...BLE_PREFER.map(p => p[0]), ...['ae00', 'ffb0', 'fee7'].map(BLE_UUID)])]; // fee7 (WeChat) last
+const hasBle = () => !!navigator.bluetooth;
+const bleRemembers = () => !!navigator.bluetooth?.getDevices;
+let bleDev = null, bleChar = null, bleQueue = Promise.resolve();
+const BLE_TIMEOUT = 20000;
+const bleTimed = (p, msg) => { let t; return Promise.race([p, new Promise((_, no) => { t = setTimeout(() => no(Object.assign(new Error(msg), { timeout: true })), BLE_TIMEOUT); })]).finally(() => clearTimeout(t)); };
+// The data characteristic of a connected printer, or null.
+async function bleFindChar(dev) {
+  const server = await bleTimed(dev.gatt.connect(), 'Printer Bluetooth tidak menjawab (mati atau di luar jangkauan?).');
+  const writable = c => c.properties.writeWithoutResponse || c.properties.write;
+  const svc = async u => { try { return await server.getPrimaryService(u); } catch (_) { return null; } };
+  if (POSP.bleId === dev.id && POSP.bleChar) {
+    for (const [s] of BLE_PREFER.concat(BLE_SERVICES.map(u => [u]))) {
+      const sv = await svc(s); if (!sv) continue;
+      try { const c = await sv.getCharacteristic(POSP.bleChar); if (writable(c)) return c; } catch (_) {}
+    }
+  }
+  for (const [s, ch] of BLE_PREFER) {
+    const sv = await svc(s); if (!sv) continue;
+    try { const c = await sv.getCharacteristic(ch); if (writable(c)) return c; } catch (_) {}
+  }
+  for (const s of BLE_SERVICES) {
+    const sv = await svc(s); if (!sv) continue;
+    let chars = [];
+    try { chars = await sv.getCharacteristics(); } catch (_) { continue; }
+    const c = chars.find(c => c.properties.writeWithoutResponse) || chars.find(c => c.properties.write);
+    if (c) return c;
+  }
+  try { dev.gatt.disconnect(); } catch (_) {}
+  return null;
+}
+// Pick a printer in Chrome's list (needs a tap). The device is kept only when
+// it turns out to be a receipt printer; otherwise the old one stays.
+async function bleConnect() {
+  if (!hasBle()) throw new Error('Browser ini tidak mendukung Bluetooth. Pakai Chrome di tablet Android atau PC.');
+  const dev = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: BLE_SERVICES });
+  const c = await bleFindChar(dev);
+  if (!c) throw new Error(`${dev.name || 'Perangkat ini'} tidak dikenali sebagai printer struk Bluetooth. Pilih nama printernya, atau pakai mode "Printer Bluetooth / USB (port serial)".`);
+  if (bleDev && bleDev !== dev) { try { bleDev.gatt.disconnect(); } catch (_) {} }
+  bleDev = dev; bleChar = c;
+  POSP.bleId = dev.id; POSP.bleName = dev.name || 'Printer Bluetooth'; POSP.bleChar = c.uuid; savePOSP();
+  return dev;
+}
+async function bleReady() {
+  if (!hasBle()) throw new Error('Browser ini tidak mendukung Bluetooth. Pakai Chrome di tablet Android atau PC.');
+  if (!bleDev && POSP.bleId && bleRemembers()) {
+    try { bleDev = (await navigator.bluetooth.getDevices()).find(d => d.id === POSP.bleId) || null; } catch (_) {}
+  }
+  if (!bleDev) {
+    // started by a tap: open the printer list right away instead of failing
+    if (navigator.userActivation?.isActive) { await bleConnect(); return bleChar; }
+    throw new Error('Printer Bluetooth belum disambungkan. Ketuk 🖨 Printer → Sambungkan printer, atau tekan Cetak lagi.');
+  }
+  if (bleChar && bleDev.gatt.connected) return bleChar;
+  bleChar = await bleFindChar(bleDev);
+  if (!bleChar) throw new Error('Printer ini tidak dikenali sebagai printer struk Bluetooth. Sambungkan ulang lewat 🖨 Printer.');
+  return bleChar;
+}
+// Packet size per device: "cepat" 180 bytes (most printers), "aman" 20 bytes
+// for printers that keep the default Bluetooth packet size (prints garbled
+// with cepat). A picture struk is ~45 KB: a few seconds cepat, ~30 s aman.
+async function bleWrite(bytes) {
+  const c = await bleReady(), quick = c.properties.writeWithoutResponse;
+  const CH = POSP.blePacket === 'aman' ? 20 : quick ? 180 : 100;
+  for (let i = 0; i < bytes.length; i += CH) {
+    const part = bytes.subarray(i, i + CH);
+    try { await bleTimed(quick ? c.writeValueWithoutResponse(part) : c.writeValue(part), 'Printer Bluetooth berhenti menjawab saat mencetak.'); }
+    catch (e) { e.partial = i > 0; throw e; }
+    if (quick) await new Promise(r => setTimeout(r, CH > 20 ? 15 : 4)); // let the printer's small buffer drain
+  }
+}
+// One print at a time. A dropped link is reconnected and the print tried once
+// more, but only when nothing reached the printer yet (else: a half struk twice).
+function sendBle(bytes) {
+  // the browser's own errors are English ("GATT operation failed"): say what to do instead
+  const plain = e => /printer|Bluetooth|Browser/.test(e.message) ? e : new Error((e.partial ? 'Struk terpotong, ' : '') + 'sambungan Bluetooth ke printer terputus. Dekatkan tablet ke printer, pastikan printer menyala, lalu cetak lagi.');
+  const fresh = () => { bleChar = null; try { bleDev?.gatt.disconnect(); } catch (_) {} };
+  const job = bleQueue.then(async () => {
+    try { await bleWrite(bytes); }
+    catch (e) {
+      if (e.name === 'NotFoundError') throw new Error('Tidak ada printer yang dipilih.');
+      if (e.partial || e.timeout || !bleDev) { if (e.timeout) fresh(); throw plain(e); }
+      fresh();
+      try { await bleWrite(bytes); } catch (e2) { if (e2.timeout) fresh(); throw plain(e2); }
+    }
+  });
+  bleQueue = job.catch(() => {});
+  return job;
+}
+// Struk and nota print as a picture of their print-window layout (Quintan's
+// choice, 2026-11-03: the font and sizes of receiptHtml / poSlipHtml at 58 mm,
+// like the RawBT prints of October, not the printer's own big font). The HTML
+// is drawn at the 58 mm content width, scaled to the 384-dot head, made black
+// and white and sent as ESC/POS raster bands. If drawing fails the text-mode
+// escposReceipt / escposPoSlip print instead.
+const PIC_CSS = `.escpic{width:204px;background:#fff;color:#000}
+.escpic .receipt{font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#fff;color:#000;border:0;border-radius:0;padding:0;margin:0}
+.escpic .c{text-align:center}.escpic hr{border:0;border-top:1px dashed #000;margin:6px 0}
+.escpic .rlogo{display:block;width:75%;max-width:220px;height:auto;margin:0 auto 4px}
+.escpic .r{display:flex;justify-content:space-between;gap:8px}`; // 204 px = 58 mm minus 2 mm padding each side
+async function escposPicture(html) {
+  const W = 204, k = ESC_DOTS / W;
+  const host = document.createElement('div');
+  host.style.cssText = 'position:fixed;left:-10000px;top:0';
+  host.innerHTML = `<div class="escpic"><style>${PIC_CSS}</style>${html}</div>`;
+  document.body.appendChild(host);
+  const pic = host.firstElementChild;
+  let h, markup;
+  try {
+    await Promise.all([...pic.querySelectorAll('img')].map(i => i.decode().catch(() => {})));
+    h = Math.ceil(pic.getBoundingClientRect().height);
+    markup = new XMLSerializer().serializeToString(pic);
+  } finally { host.remove(); }
+  const H = Math.ceil(h * k);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${ESC_DOTS}" height="${H}"><g transform="scale(${k})"><foreignObject x="0" y="0" width="${W}" height="${h}">${markup}</foreignObject></g></svg>`;
+  const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error('gambar struk gagal dibuat')); i.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); });
+  const cv = document.createElement('canvas'); cv.width = ESC_DOTS; cv.height = H;
+  const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, ESC_DOTS, H); cx.drawImage(img, 0, 0);
+  const px = cx.getImageData(0, 0, ESC_DOTS, H).data, wb = ESC_DOTS / 8;
+  const out = new Uint8Array(2 + Math.ceil(H / 128) * 8 + wb * H + 3);
+  let o = 0; out[o++] = 0x1b; out[o++] = 0x40; // ESC @
+  for (let y0 = 0; y0 < H; y0 += 128) { // bands: some printers choke on one tall image
+    const bh = Math.min(128, H - y0);
+    out.set([0x1d, 0x76, 0x30, 0x00, wb & 255, wb >> 8, bh & 255, bh >> 8], o); o += 8;
+    for (let y = y0; y < y0 + bh; y++) for (let xb = 0; xb < wb; xb++) {
+      let v = 0;
+      for (let bit = 0; bit < 8; bit++) {
+        const i = (y * ESC_DOTS + xb * 8 + bit) * 4;
+        if (px[i] * .3 + px[i + 1] * .59 + px[i + 2] * .11 < 160) v |= 0x80 >> bit;
+      }
+      out[o++] = v;
+    }
+  }
+  out.set([0x1b, 0x64, 4], o); o += 3; // feed 4 lines so the struk clears the tear bar
+  return out.subarray(0, o);
+}
+const picOr = (html, text) => () => escposPicture(html()).catch(e => { console.warn('struk as picture failed, printing text', e); return text(); });
+// Struk / nota to the printer this device is set to; false = use the print window.
+async function sendEscPos(make, what) {
+  const send = { serial: sendSerial, ble: sendBle, rawbt: sendRawBT }[POSP.printMode];
+  if (!send) return false;
+  try { await send(await make()); }
+  catch (e) { toast(`Gagal mencetak ${what}: ` + e.message, true); }
+  return true;
 }
 // The pre-order nota goes to the same printer as the struk (COM port / RawBT /
 // print window). It used to always open the print window, and on Android that
 // sent it through RawBT's print service, which stamps its trial notice on it.
 async function printPoSlip(r) {
-  if (POSP.printMode === 'serial') {
-    try { await sendSerial(await escposPoSlip(r)); }
-    catch (e) { toast('Gagal mencetak: ' + e.message, true); }
-    return;
-  }
-  if (POSP.printMode === 'rawbt') {
-    try { sendRawBT(await escposPoSlip(r)); }
-    catch (e) { toast('Gagal menyiapkan nota untuk printer Bluetooth: ' + e.message, true); }
-    return;
-  }
+  if (await sendEscPos(picOr(() => poSlipHtml(r), () => escposPoSlip(r)), 'nota')) return;
   $('#print').innerHTML = poSlipHtml(r);
   printAs('receipt');
 }
 async function printReceipt(sale, items, pays) {
-  if (POSP.printMode === 'serial') {
-    try { await sendSerial(await escposReceipt(sale, items, pays)); }
-    catch (e) { toast('Gagal mencetak: ' + e.message, true); }
-    return;
-  }
-  if (POSP.printMode === 'rawbt') {
-    try { sendRawBT(await escposReceipt(sale, items, pays)); }
-    catch (e) { toast('Gagal menyiapkan struk untuk printer Bluetooth: ' + e.message, true); }
-    return;
-  }
+  if (await sendEscPos(picOr(() => receiptHtml(sale, items, pays), () => escposReceipt(sale, items, pays)), 'struk')) return;
   $('#print').innerHTML = receiptHtml(sale, items, pays);
   printAs('receipt');
 }
 // The per-device printer settings, in Pengaturan → Tampilan and behind the
 // Kasir screen's "Printer" button (the kasir login has no Pengaturan).
 function printerCard(el) {
+  const M = POSP.printMode, opt = (v, title, note) => `<label class="pick"><input type="radio" name="prmode" value="${v}" ${M === v ? 'checked' : ''}><span><b>${title}</b><small>${note}</small></span></label>`;
   el.innerHTML = `
     <label class="f" style="margin-top:0">Printer struk</label>
     <div class="choice-list">
-      <label class="pick"><input type="radio" name="prmode" value="browser" ${!['rawbt', 'serial'].includes(POSP.printMode) ? 'checked' : ''}><span><b>Jendela cetak</b><small>PC / laptop dengan printer yang terpasang drivernya (mis. Blueprint BP-ECO58D lewat USB). Kertas 58 mm.</small></span></label>
-      ${hasSerial() || POSP.printMode === 'serial' ? `<label class="pick"><input type="radio" name="prmode" value="serial" ${POSP.printMode === 'serial' ? 'checked' : ''}><span><b>Printer langsung (port COM)</b><small>PC dengan Chrome / Edge, printer Bluetooth atau USB yang muncul sebagai port COM (mis. Rongta RPP02N). Tanpa driver, tanpa jendela cetak.</small></span></label>` : ''}
-      <label class="pick"><input type="radio" name="prmode" value="rawbt" ${POSP.printMode === 'rawbt' ? 'checked' : ''}><span><b>Printer Bluetooth (RawBT)</b><small>HP / tablet Android. Pasang aplikasi RawBT, sambungkan printer di RawBT, lalu pilih ini.</small></span></label>
+      <label class="pick"><input type="radio" name="prmode" value="browser" ${!['rawbt', 'serial', 'ble'].includes(M) ? 'checked' : ''}><span><b>Jendela cetak</b><small>PC / laptop dengan printer yang terpasang drivernya (mis. Blueprint BP-ECO58D lewat USB). Kertas 58 mm.</small></span></label>
+      ${hasBle() || M === 'ble' ? opt('ble', 'Printer Bluetooth (langsung)', 'Tablet / HP Android atau PC dengan Chrome. Sambungkan printer struk Bluetooth langsung dari aplikasi ini, tanpa aplikasi lain.') : ''}
+      ${hasSerial() || M === 'serial' ? opt('serial', 'Printer Bluetooth / USB (port serial)', 'Untuk printer yang tidak muncul di pilihan di atas (Bluetooth klasik atau USB, mis. Rongta RPP02N). Chrome di PC, atau di Android versi baru.') : ''}
+      ${M === 'rawbt' ? opt('rawbt', 'RawBT (lama)', 'Lewat aplikasi RawBT. Pilih Printer Bluetooth (langsung) supaya tidak perlu aplikasi lain.') : ''}
     </div>
+    ${!hasBle() && !hasSerial() ? '<p class="muted sm" style="margin:8px 0 0">Browser ini tidak bisa menyambung ke printer. Buka aplikasi kasir ini di <b>Chrome</b> (Android / PC) untuk mencetak lewat Bluetooth.</p>' : ''}
     <div class="row" style="margin-top:12px" id="prser"><button type="button" class="btn" id="prconn">🔌 Sambungkan printer</button><span class="muted sm" id="prstat" style="align-self:center"></span></div>
+    <div id="prpkt" style="margin-top:12px"><label class="f" style="margin-top:0" for="prpk">Kecepatan kirim Bluetooth</label>
+      <select class="input" id="prpk"><option value="cepat" ${POSP.blePacket !== 'aman' ? 'selected' : ''}>Cepat (kebanyakan printer)</option><option value="aman" ${POSP.blePacket === 'aman' ? 'selected' : ''}>Aman, lebih lambat (kalau Cetak uji keluar acak atau terpotong)</option></select></div>
     <label style="display:flex;gap:10px;align-items:center;margin-top:14px;font-weight:600"><input type="checkbox" id="prauto" ${POSP.autoPrint ? 'checked' : ''}> Cetak struk otomatis setelah bayar</label>
     <div class="row" style="margin-top:12px"><button type="button" class="btn" id="prtest">🖨 Cetak uji</button></div>
     <p class="muted sm" style="margin:12px 0 0" id="prhelp"></p>`;
   const stat = async () => {
-    $('#prser', el).style.display = POSP.printMode === 'serial' ? '' : 'none';
-    if (POSP.printMode !== 'serial') return;
-    if (!hasSerial()) { $('#prstat', el).textContent = 'Browser ini tidak mendukung. Pakai Chrome atau Edge di PC.'; return; }
+    const m = POSP.printMode;
+    $('#prser', el).style.display = m === 'serial' || m === 'ble' ? '' : 'none';
+    $('#prpkt', el).style.display = m === 'ble' ? '' : 'none';
+    if (m === 'ble') {
+      $('#prstat', el).textContent = !hasBle() ? 'Browser ini tidak mendukung Bluetooth. Pakai Chrome.'
+        : bleDev?.gatt.connected ? `Tersambung: ${bleDev.name || POSP.bleName}.`
+        : bleDev ? `Printer: ${bleDev.name || POSP.bleName}. Tersambung lagi saat mencetak.`
+        : POSP.bleName && bleRemembers() ? `Printer: ${POSP.bleName}. Tersambung lagi otomatis saat mencetak.`
+        : POSP.bleName ? `Printer: ${POSP.bleName}. Setelah aplikasi dibuka ulang, daftar printer muncul sendiri saat Cetak pertama: pilih ${POSP.bleName}.`
+        : 'Belum ada printer.';
+      return;
+    }
+    if (m !== 'serial') return;
+    if (!hasSerial()) { $('#prstat', el).textContent = 'Browser ini tidak mendukung. Pakai Chrome atau Edge.'; return; }
     const n = serialPort ? 1 : (await navigator.serial.getPorts()).length;
     $('#prstat', el).textContent = n ? 'Printer sudah tersambung.' : 'Belum ada printer.';
   };
   $('#prconn', el).onclick = async () => {
-    try { await serialConnect(); toast('Printer tersambung. Coba Cetak uji.'); }
+    const b = $('#prconn', el); b.disabled = true;
+    try { await (POSP.printMode === 'ble' ? bleConnect() : serialConnect()); toast('Printer tersambung. Coba Cetak uji.'); }
     catch (e) { if (e.name !== 'NotFoundError') toast('Gagal menyambungkan: ' + e.message, true); }
-    stat();
+    b.disabled = false; stat();
   };
-  const help = () => { stat(); $('#prhelp', el).innerHTML = POSP.printMode === 'serial'
-    ? 'Pasangkan printer di Bluetooth Windows dulu. Klik <b>Sambungkan printer</b> lalu pilih port printer: untuk Bluetooth pilih <b>Standard Serial over Bluetooth link</b> (port COM keluar / outgoing, mis. COM4). Tutup aplikasi lain yang memakai port itu. Tersimpan di perangkat ini saja.'
-    : POSP.printMode === 'rawbt'
-    ?'Pasang <b>RawBT</b> dari Play Store. Pasangkan printer di Bluetooth Android, lalu di RawBT pilih printer itu dan lebar kertas 58 mm. Struk langsung tercetak tanpa jendela cetak. Tersimpan di perangkat ini saja.'
+  const help = () => { stat(); const m = POSP.printMode; $('#prhelp', el).innerHTML = m === 'ble'
+    ? 'Nyalakan printer dan Bluetooth tablet. Ketuk <b>Sambungkan printer</b>, pilih nama printer (mis. RPP02N, MTP-II, BlueTooth Printer), lalu <b>Cetak uji</b>. Tidak perlu dipasangkan dulu di pengaturan Bluetooth dan tidak perlu aplikasi lain. Kalau nama printer tidak muncul, printernya Bluetooth klasik: pakai <b>Printer Bluetooth / USB (port serial)</b>. Tersimpan di perangkat ini saja.'
+    : m === 'serial'
+    ? 'Pasangkan printer di pengaturan Bluetooth perangkat dulu (atau colok USB). Ketuk <b>Sambungkan printer</b> lalu pilih printernya; di Windows pilih <b>Standard Serial over Bluetooth link</b> (port COM keluar / outgoing, mis. COM4). Tutup aplikasi lain yang memakai printer itu. Tersimpan di perangkat ini saja.'
+    : m === 'rawbt'
+    ? 'Mode lama lewat aplikasi RawBT. Pilih <b>Printer Bluetooth (langsung)</b> supaya struk dicetak dari aplikasi kasir ini saja.'
     : 'Di jendela cetak pilih printer struk dan kertas 58 mm. Supaya langsung tercetak tanpa jendela cetak: jadikan printer struk printer bawaan, lalu tambahkan <b>--kiosk-printing</b> di shortcut Chrome yang dipakai untuk kasir. Tersimpan di perangkat ini saja.'; };
   help();
-  el.querySelectorAll('input[name=prmode]').forEach(r => r.onchange = () => { POSP.printMode = r.value; savePOSP(); help(); toast(r.value === 'serial' ? 'Struk dicetak langsung ke printer (port COM).' : r.value === 'rawbt' ? 'Struk dicetak lewat RawBT (Bluetooth).' : 'Struk dicetak lewat jendela cetak.'); });
+  el.querySelectorAll('input[name=prmode]').forEach(r => r.onchange = () => { POSP.printMode = r.value; savePOSP(); help(); toast({ serial: 'Struk dicetak langsung ke printer (port serial).', ble: 'Struk dicetak langsung ke printer Bluetooth.', rawbt: 'Struk dicetak lewat RawBT.' }[r.value] || 'Struk dicetak lewat jendela cetak.'); });
+  $('#prpk', el).onchange = () => { POSP.blePacket = $('#prpk', el).value; savePOSP(); toast(POSP.blePacket === 'aman' ? 'Kirim aman: lebih lambat, cocok untuk printer yang hasilnya acak.' : 'Kirim cepat.'); };
   $('#prauto', el).onchange = () => { POSP.autoPrint = $('#prauto', el).checked; savePOSP(); toast(POSP.autoPrint ? 'Struk tercetak otomatis setelah bayar.' : 'Struk dicetak dengan tombol Cetak.'); };
   $('#prtest', el).onclick = () => printReceipt(
     { number: 'CETAK UJI', created: new Date().toISOString(), subtotal: 100000, discount: 0, total: 100000, paid: 100000, change: 0, status: 'lunas', expand: { cashier: S.user } },
@@ -4014,6 +4204,15 @@ async function viewShip() {
 // …/#/o/{number}: the order link in WhatsApp messages. After login it opens
 // Pengiriman (paid orders) or Pesanan Online (the rest) with that order.
 async function takeDeepLink() {
+  // #/buka/{menu}: the installed app's icon shortcuts (Kasir, Pre-Order, Transaksi)
+  const b = location.hash.match(/^#\/buka\/([a-z]+)$/);
+  if (b) {
+    history.replaceState(null, '', location.pathname + location.search);
+    const it = navItems().find(i => i.key === b[1]);
+    if (!it) return false;
+    S.tab = it.tab; S.navKey = it.key; it.setup?.();
+    return true;
+  }
   const m = location.hash.match(/^#\/o\/([A-Za-z0-9-]+)$/);
   if (!m) return false;
   history.replaceState(null, '', location.pathname + location.search);
