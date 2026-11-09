@@ -713,7 +713,7 @@ function renderShell() {
   const side = items.map(i => {
     const head = i.group !== lastGroup && i.group ? `<div class="side-group">${esc(i.group)}</div>` : '';
     lastGroup = i.group;
-    return `${head}<button data-nav="${i.key}">${icon(i.key)}<span>${esc(i.label)}</span>${i.key === 'po' ? ' <span class="beta">Beta</span>' : ''}</button>`;
+    return `${head}<button data-nav="${i.key}">${icon(i.key)}<span>${esc(i.label)}</span></button>`;
   }).join('');
   const who = `<div class="who"><b>${esc(S.user.name || S.user.username)}</b><span class="badge">${esc(realRole())}</span></div>`;
   $('#app').innerHTML = `
@@ -729,7 +729,7 @@ function renderShell() {
       <header class="top">
         <button class="btn ghost sm menu-btn" id="menuBtn" aria-label="Buka menu">☰</button>
         <div class="brand">${brandHtml(store)}</div>
-        <nav class="nav">${topItems().map(i => `<button data-nav="${i.key}">${esc(i.label)}${i.key === 'po' ? ' <span class="beta">Beta</span>' : ''}</button>`).join('')}${role() === 'pelanggan' ? '' : '<button data-printer>Printer</button>'}<button data-install hidden>Pasang aplikasi</button></nav>
+        <nav class="nav">${topItems().map(i => `<button data-nav="${i.key}">${esc(i.label)}</button>`).join('')}${role() === 'pelanggan' ? '' : '<button data-printer>Printer</button>'}<button data-install hidden>Pasang aplikasi</button></nav>
         ${who}<button class="btn ghost sm" data-out>Keluar</button>
       </header>
       <main id="view"></main>
@@ -1360,7 +1360,7 @@ function openPayment() {
 const PS = { sub: 'list', status: 'aktif', q: '' };
 const PO_STATUS = { menunggu: ['Menunggu', 'warn'], siap: ['Siap diambil', 'ok'], selesai: ['Selesai', ''], batal: ['Batal', 'bad'] };
 function viewPO() {
-  const head = () => `<h2 class="po-title">Pre-Order <span class="beta">Beta</span></h2><div id="posub"></div>`;
+  const head = () => `<h2 class="po-title">Pre-Order</h2><div id="posub"></div>`;
   const tabs = [['list', 'Daftar pre-order'], ['new', 'Pre-order baru']];
   if (PS.sub === 'new') {
     swapCart('po');

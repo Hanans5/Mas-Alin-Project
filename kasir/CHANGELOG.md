@@ -1,5 +1,8 @@
 # Nelin Batik kasir: changelog
 
+## 2026-11-09: Pre-Order out of beta
+- The "Beta" label is gone from Pre-Order (side menu, top menu, page title). Nothing else changed.
+
 ## 2026-11-03: Printer in the menu, + to add a printer, Bluetooth access help
 - **Printer** moved from the Kasir screen into the menu: a pinned "Perangkat" block at the bottom of the side menu (Printer with the current printer under it, **+**, Pasang aplikasi), or 🖨 Printer and + in the top bar. Printer opens the per-device printer settings; **+** adds a printer at once (Chrome's Bluetooth list, or the port list in serial mode; a device on the print window switches to Printer Bluetooth (langsung)).
 - The top bar itself has no Printer / + / install buttons (they crowded the phone header): side menu and ☰ menu have the Perangkat block; the top-tab layout has Printer and Pasang aplikasi as the last tabs.
