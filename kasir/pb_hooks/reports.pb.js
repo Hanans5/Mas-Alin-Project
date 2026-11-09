@@ -228,6 +228,14 @@ routerAdd("GET", "/api/tx/summary", (e) => {
   const s = L.query(e.app, `SELECT COUNT(*) AS count, COALESCE(SUM(total),0) AS omzet, COALESCE(SUM(paid),0) AS paid
       FROM sales WHERE status != 'batal' AND created >= {:from} AND created < {:to}${emp}`,
     { from: r.from, to: r.to, emp: q.employee || "" }, { count: 0, omzet: 0, paid: 0 })[0];
+  // DP pre-order money that came in (refunds out) in the period: real till money
+  // with no sale yet (the sale is made at pelunasan), shown under the totals.
+  const empPo = q.employee === "toko" ? " AND po.employee = ''" : q.employee ? " AND po.employee = {:emp}" : "";
+  const po = L.query(e.app, `SELECT COUNT(*) AS n, COALESCE(SUM(CASE pp.kind WHEN 'refund' THEN -pp.amount ELSE pp.amount END),0) AS v
+      FROM preorder_payments pp JOIN preorders po ON po.id = pp.preorder
+      WHERE pp.created >= {:from} AND pp.created < {:to}${empPo}`,
+    { from: r.from, to: r.to, emp: q.employee || "" }, { n: 0, v: 0 })[0];
+  s.po_dp = po.v; s.po_count = po.n;
   return e.json(200, s);
 }, $apis.requireAuth("users"));
 

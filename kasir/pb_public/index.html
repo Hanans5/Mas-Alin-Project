@@ -1586,8 +1586,10 @@ const itemQty = (i, money) => i.tier === 'pack' && i.pack_size > 0
   ? `${i.qty / i.pack_size} Pack (${i.pack_size} pcs) x ${money(Math.round(i.subtotal / (i.qty / i.pack_size)))}` : `${i.qty} x ${money(i.price)}`;
 // Receipt payment lines: each method (cash shown as handed over, change below),
 // "DP" when the rest became a bon; older sales fall back to their one method.
+// Open or paid-off bon of a sale; never for a pelunasan (its DP was paid before).
+const bonLeft = sale => sale.preorder ? 0 : sale.total - sale.paid;
 function payLines(sale, pays) {
-  const dp = sale.total > sale.paid ? 'DP ' : '';
+  const dp = bonLeft(sale) > 0 ? 'DP ' : '';
   if (pays && pays.length) {
     const cash = pays.find(p => p.expand?.payment_method?.is_cash);
     return pays.map(p => [dp + (p.expand?.payment_method?.name || 'Bayar'), p.amount + (p === cash ? sale.change : 0)]);
@@ -1623,7 +1625,7 @@ function receiptHtml(sale, items, pays) {
     ${x.preorder ? `<div class="r"><span>DP pre-order ${esc(x.preorder.number)}</span><span>${x.preorder.dp.toLocaleString('id-ID')}</span></div>` : ''}
     ${payLines(sale, pays).map(l => `<div class="r"><span>${esc(l[0])}</span><span>${l[1].toLocaleString('id-ID')}</span></div>`).join('')}
     ${sale.change ? `<div class="r"><span>Kembali</span><span>${sale.change.toLocaleString('id-ID')}</span></div>` : ''}
-    ${sale.total > sale.paid ? `<div class="r"><b>${sale.status === 'piutang' ? 'SISA BON' : 'BON (sudah lunas)'}</b><b>${(sale.total - sale.paid).toLocaleString('id-ID')}</b></div>` : ''}
+    ${bonLeft(sale) > 0 ? `<div class="r"><b>${sale.status === 'piutang' ? 'SISA BON' : 'BON (sudah lunas)'}</b><b>${bonLeft(sale).toLocaleString('id-ID')}</b></div>` : ''}
     ${sale.status === 'batal' ? `<div class="c"><b>*** DIBATALKAN ***</b></div>` : ''}
     <hr>
     ${lines(st.receipt_footer)}
@@ -1635,8 +1637,9 @@ function receiptText(sale, items, pays) {
     sale.kind === 'tukar' ? 'Tukar barang' : '',
     ...items.map(i => `${i.name}${TIER_NOTE[i.tier] ? ` (${TIER_NOTE[i.tier]})` : ''}\n  ${itemQty(i, rp)} = ${rp(i.subtotal)}`), '',
     sale.discount ? `Diskon: -${rp(sale.discount)}` : '', `*Total: ${rp(sale.total)}*`,
+    sale.expand?.preorder ? `DP pre-order ${sale.expand.preorder.number}: ${rp(sale.expand.preorder.dp)}` : '',
     ...payLines(sale, pays).map(l => `${l[0]}: ${rp(l[1])}`), sale.change ? `Kembali: ${rp(sale.change)}` : '',
-    sale.total > sale.paid ? (sale.status === 'piutang' ? `*Sisa bon: ${rp(sale.total - sale.paid)}*` : `Bon ${rp(sale.total - sale.paid)} sudah lunas`) : '',
+    bonLeft(sale) > 0 ? (sale.status === 'piutang' ? `*Sisa bon: ${rp(bonLeft(sale))}*` : `Bon ${rp(bonLeft(sale))} sudah lunas`) : '',
     '', 'Terima kasih!'].filter((l, i, a) => l !== '' || a[i - 1] !== '').join('\n');
 }
 // ── struk printing ──
@@ -1737,7 +1740,7 @@ async function escposReceipt(sale, items, pays) {
   if (x.preorder) line(lr('DP pre-order ' + x.preorder.number, n(x.preorder.dp)));
   for (const l of payLines(sale, pays)) line(lr(l[0], n(l[1])));
   if (sale.change) line(lr('Kembali', n(sale.change)));
-  if (sale.total > sale.paid) { bold(1); line(lr(sale.status === 'piutang' ? 'SISA BON' : 'BON (sudah lunas)', n(sale.total - sale.paid))); bold(0); }
+  if (bonLeft(sale) > 0) { bold(1); line(lr(sale.status === 'piutang' ? 'SISA BON' : 'BON (sudah lunas)', n(bonLeft(sale)))); bold(0); }
   if (sale.status === 'batal') { align(1); bold(1); line('*** DIBATALKAN ***'); bold(0); align(0); }
   sep();
   return bytes();
@@ -2123,7 +2126,8 @@ async function showReceipt(sale, items, fresh, pays) {
     </div>
     ${legacy ? `<div class="muted sm" style="margin-top:8px">Transaksi sistem lama: total per hari, pelanggan, karyawan dan produk sesuai laporan lama; rincian barang per nota disimulasikan. Tidak bisa dibatalkan atau ditukar.</div>` : ''}
     ${role() !== 'pelanggan' && sale.status !== 'batal' && sale.kind !== 'tukar' && !fresh && !legacy ? `<button class="btn block" id="rswap" style="margin-top:8px">Tukar barang</button>` : ''}
-    ${isManager() && sale.status !== 'batal' && !fresh && !legacy ? `<button class="btn danger block" id="rvoid" style="margin-top:8px">Batalkan transaksi</button>` : ''}
+    ${isManager() && sale.status !== 'batal' && !fresh && !legacy && !sale.preorder ? `<button class="btn danger block" id="rvoid" style="margin-top:8px">Batalkan transaksi</button>` : ''}
+    ${sale.preorder && !fresh ? `<div class="muted sm" style="margin-top:8px">Pelunasan pre-order${sale.expand?.preorder ? ' ' + esc(sale.expand.preorder.number) : ''}: tidak bisa dibatalkan di sini karena DP-nya sudah tercatat di Buku Kas.${role() !== 'pelanggan' ? ' <a href="#" id="rpo">Buka pre-order</a>' : ''}</div>` : ''}
     ${!fresh && canDeleteSale(sale) ? `<button class="btn danger block" id="rdel" style="margin-top:8px">${TRASH_SVG.replace('<svg', '<svg style="width:18px;height:18px;vertical-align:-3px;margin-right:6px"')}Hapus permanen</button>` : ''}
     <button class="btn primary block" id="rdone" style="margin-top:8px">${fresh ? 'Transaksi baru' : 'Tutup'}</button>`);
   if ($('#rdel')) $('#rdel').onclick = () => openDeleteSale(sale, () => S.reloadTx?.());
@@ -2133,6 +2137,7 @@ async function showReceipt(sale, items, fresh, pays) {
   if (fresh && POSP.autoPrint) setTimeout(() => printReceipt(sale, items, pays), 150);
   $('#rdone').onclick = () => { closeModal(); if (fresh) $('#q')?.focus(); };
   if ($('#rvoid')) $('#rvoid').onclick = () => openVoid(sale);
+  if ($('#rpo')) $('#rpo').onclick = ev => { ev.preventDefault(); closeModal(); poDetail(sale.preorder).catch(e => toast(e.message, true)); };
   if ($('#rswap')) $('#rswap').onclick = () => openSwap(sale.id).catch(e => toast(e.message, true));
 }
 
@@ -2144,7 +2149,7 @@ const TS = { preset: 'today', from: wibToday(), to: wibToday(), employee: '' };
 // receipt, or an amount ("56000", "56.000", "Rp 56.000" match the total).
 function txSearch(q) {
   if (!q) return '';
-  const v = pbq(q), parts = [`number ~ ${v}`, `customer.name ~ ${v}`, `customer.username ~ ${v}`, `employee.name ~ ${v}`, `sale_items_via_sale.name ~ ${v}`];
+  const v = pbq(q), parts = [`number ~ ${v}`, `preorder.number ~ ${v}`, `customer.name ~ ${v}`, `customer.username ~ ${v}`, `employee.name ~ ${v}`, `sale_items_via_sale.name ~ ${v}`];
   // The kasir can't read staff logins, and a filter on them would hide those sales.
   if (role() !== 'kasir') parts.push(`cashier.name ~ ${v}`);
   const n = q.replace(/^rp\s*/i, '').replace(/[.,\s]/g, '');
@@ -2186,11 +2191,11 @@ async function viewTx() {
         <div class="card stat"><small>Transaksi</small><b class="num">${sum.count.toLocaleString('id-ID')}</b></div>
         <div class="card stat"><small>Omzet</small><b class="num">${rp(sum.omzet)}</b></div>
         <div class="card stat"><small>Diterima</small><b class="num">${rp(sum.paid)}</b></div>
-      </div>${old ? `<div class="card legacy-day"><b>Sistem lama: ${old.count.toLocaleString('id-ID')} transaksi, ${rp(old.total)}</b>
+      </div>${sum.po_dp ? `<div class="muted sm" style="margin:-4px 0 10px">+ DP pre-order <b class="num">${rp(sum.po_dp)}</b> diterima di periode ini (${sum.po_count} pembayaran), belum termasuk Diterima: transaksinya dibuat saat pelunasan. Lihat Pre-Order atau Buku Kas.</div>` : ''}${old ? `<div class="card legacy-day"><b>Sistem lama: ${old.count.toLocaleString('id-ID')} transaksi, ${rp(old.total)}</b>
         <div class="muted sm">${old.items.toLocaleString('id-ID')} pcs. Hari ini tercatat di sistem lama, hanya total hariannya yang dipindahkan (tanpa rincian per transaksi).</div></div>` : ''}`;
       const row = s => `<div class="txw">` + `
         <div class="tx" role="button" tabindex="0" data-s="${s.id}">
-          <span><b class="num">${esc(s.number)}</b> <span class="badge ${s.status === 'lunas' ? 'ok' : s.status === 'batal' ? 'bad' : 'warn'}">${s.status}</span>${isLegacy(s) ? ' <span class="badge">sistem lama</span>' : ''}${s.kind === 'tukar' ? ` <span class="badge">tukar${s.expand?.ref_sale ? ' · ' + esc(s.expand.ref_sale.number) : ''}</span>` : ''}</span>
+          <span><b class="num">${esc(s.number)}</b> <span class="badge ${s.status === 'lunas' ? 'ok' : s.status === 'batal' ? 'bad' : 'warn'}">${s.status}</span>${isLegacy(s) ? ' <span class="badge">sistem lama</span>' : ''}${s.kind === 'tukar' ? ` <span class="badge">tukar${s.expand?.ref_sale ? ' · ' + esc(s.expand.ref_sale.number) : ''}</span>` : ''}${s.preorder ? ` <span class="badge">pre-order${s.expand?.preorder ? ' · ' + esc(s.expand.preorder.number) : ''}</span>` : ''}</span>
           <b class="num">${rp(s.total)}</b>
           <small class="muted">${fmtTime(s.created)} · ${esc(s.expand?.customer?.name || 'Toko')}${s.expand?.employee ? ' · ' + esc(s.expand.employee.name) : ' · ' + esc(cashierLabel(s.expand?.cashier))}</small>
           <small class="muted">${esc(s.expand?.payment_method?.name || '')}</small>

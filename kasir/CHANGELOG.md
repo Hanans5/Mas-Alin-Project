@@ -1,5 +1,10 @@
 # Nelin Batik kasir: changelog
 
+## 2026-11-09: Pre-Order and Transaksi
+- Struk of a pelunasan no longer shows "BON (sudah lunas)" with the DP amount, and its payment is no longer labelled "DP Tunai": a pre-order sale is always fully paid (its DP was paid before; sales.paid holds only the rest). Same on the ESC/POS print and WhatsApp text, which now also shows the DP line. Normal bon sales unchanged (`bonLeft()`).
+- Transaksi: search finds a pelunasan by its PO number; pelunasan rows get a "pre-order · PO-…" badge; under the totals a line shows the DP pre-order money received in the period (`/api/tx/summary` now returns `po_dp` and `po_count`), since Diterima only counts sales.
+- A pelunasan's struk has no "Batalkan transaksi" button any more (the server always refused it); a note says why, with a link to open the pre-order.
+
 ## 2026-11-09: Pre-Order out of beta
 - The "Beta" label is gone from Pre-Order (side menu, top menu, page title). Nothing else changed.
 
