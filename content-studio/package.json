@@ -1,0 +1,15 @@
+{
+  "name": "nelin-content-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nelin Batik Content Studio: AI agents that plan, write and schedule social posts, with a local dashboard and REST API",
+  "type": "module",
+  "engines": { "node": ">=22.9" },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.mjs",
+    "test": "node tests/smoke.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.136.0"
+  }
+}
